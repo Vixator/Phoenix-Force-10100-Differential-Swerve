@@ -10,6 +10,11 @@ FINAL ASSEMBLY:
 | Thin Bearings | drive gear bearings  | 2        | 6.98             | https://www.servocity.com/8mm-id-x-12mm-od-flanged-ball-bearing-2-pack/ | Servo City  |
 | Drive Motor   | differential drive   | 4        | 119.96           | https://www.gobilda.com/5000-series-12vdc-motor-with-8mm-rex-pinion-shaft/ | GoBilda     |
 | V Wheels      | Guide for both rings | 16       | 95.84            | https://www.gobilda.com/1609-series-v-groove-bearing-4mm-id-x-13mm-od-6mm-thickness-2-pack/ | GoBilda     |
+
+https://a360.co/48eWGds
+https://drive.google.com/file/d/1gVS6H1iNc6I3MPHbz6Wf5h6lcTnVpn8p/view?usp=sharing
+https://drive.google.com/file/d/1di17B7p2HzDHc9ICcXSyi83P7sQ8oC-l/view?usp=sharing
+https://drive.google.com/file/d/14xXwFPS3NqQFN_-B-Hy5J1pjFPaIst6e/view?usp=sharing
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ## NOTICE
 
