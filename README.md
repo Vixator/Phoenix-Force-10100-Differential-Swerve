@@ -1,9 +1,7 @@
 ## FOR HACKCLUB STASIS
 My project is a differential swerve drivetrain for an FTC robot. A differential swerve drive is a holonomic drive, which allows the robot to move in any direction at any time. A differential drive is different from a co-axial swerve drive (used in FRC) as it uses both motors for thrust and direction instead of using one per. This allows for double the power while moving forward and turning, resulting in a faster drivetrain. I made this project mainly for fun and to test my skills in designing and manufacturing. It could benefit my robotics team in the next season, but that varies depending on the actual game presented. 
 FINAL ASSEMBLY:
-<img width="1024" height="1024" alt="diffy_swerve_gluten_rich_fr_this_time_2026-Apr-20_04-03-05PM-000_CustomizedView14014844747_png" src="https://github.com/user-attachments/assets/9fcf059e-0214-4f78-8dd7-28246e27ca8b" />
-
-<img width="1102" height="834" alt="image" src="https://github.com/user-attachments/assets/52264947-9740-46c2-a539-277884889ab1" />
+<img width="4080" height="3072" alt="PXL_20260701_043925694" src="https://github.com/user-attachments/assets/db6fcaca-4ff0-4d81-b9aa-2a85cdc23d8f" />
 
 | Name          | Purpose              | Quantity | Total Cost (USD) | Link                                                                 | Distributor |
 |---------------|----------------------|----------|------------------|----------------------------------------------------------------------|-------------|
@@ -11,10 +9,8 @@ FINAL ASSEMBLY:
 | Drive Motor   | differential drive   | 4        | 119.96           | https://www.gobilda.com/5000-series-12vdc-motor-with-8mm-rex-pinion-shaft/ | GoBilda     |
 | V Wheels      | Guide for both rings | 16       | 95.84            | https://www.gobilda.com/1609-series-v-groove-bearing-4mm-id-x-13mm-od-6mm-thickness-2-pack/ | GoBilda     |
 
-https://a360.co/48eWGds
-https://drive.google.com/file/d/1gVS6H1iNc6I3MPHbz6Wf5h6lcTnVpn8p/view?usp=sharing
-https://drive.google.com/file/d/1di17B7p2HzDHc9ICcXSyi83P7sQ8oC-l/view?usp=sharing
-https://drive.google.com/file/d/14xXwFPS3NqQFN_-B-Hy5J1pjFPaIst6e/view?usp=sharing
+https://a360.co/3Rd4tmD (1150rpm ver)
+https://a360.co/4vH5RNu (435rpm old ver)
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ## NOTICE
 
