@@ -1,7 +1,7 @@
 ## FOR HACKCLUB STARDANCE
 My project is a differential swerve drivetrain for an FTC robot. A differential swerve drive is a holonomic drive, which allows the robot to move in any direction at any time. A differential drive is different from a co-axial swerve drive (used in FRC) as it uses both motors for thrust and direction instead of using one per. This allows for double the power while moving forward and turning, resulting in a faster drivetrain. I made this project mainly for fun and to test my skills in designing and manufacturing. It could benefit my robotics team in the next season, but that varies depending on the actual game presented. 
 
-FINAL ASSEMBLY V1:
+FINAL ASSEMBLY V1: Too large and not correct speed
 <img width="4080" height="3072" alt="PXL_20260701_043925694" src="https://github.com/user-attachments/assets/db6fcaca-4ff0-4d81-b9aa-2a85cdc23d8f" />
 
 V2 In progress, need parts to finish assembly.
