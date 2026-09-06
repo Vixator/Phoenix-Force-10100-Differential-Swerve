@@ -1,3 +1,47 @@
+# Differential Swerve Drivetrain
+
+This project implements a **Differential Swerve** drivetrain for an FTC robot. Unlike traditional coaxial swerve drives that use one motor for steering and another for driving, a differential swerve uses two motors per pod to handle both tasks simultaneously. This allows the drivetrain to utilize the full power of both motors for either driving or steering, resulting in a more powerful and responsive system.
+
+## Hardware Configuration
+
+The current implementation in [DifferentialSwerveTeleOp.java](file:///C:/Users/preco/OneDrive/Documents/GitHub/Phoenix-Force-10100-Differential-Swerve/TeamCode/src/main/java/org/firstinspires/ftc/teamcode/DifferentialSwerveTeleOp.java) expects the following motor configuration on the Control Hub:
+
+| Port | Name | Description |
+| :--- | :--- | :--- |
+| `0` | `motor0` | Left Pod: LEFT Motor |
+| `1` | `motor1` | Left Pod: RIGHT Motor |
+| `2` | `motor2` | Right Pod: LEFT Motor |
+| `3` | `motor3` | Right Pod: RIGHT Motor |
+
+*Note: The right pod is physically flipped 180° relative to the left pod. This is accounted for in the software by reversing the motor directions for the right pod.*
+
+## Controls
+
+The [DifferentialSwerveTeleOp](file:///C:/Users/preco/OneDrive/Documents/GitHub/Phoenix-Force-10100-Differential-Swerve/TeamCode/src/main/java/org/firstinspires/ftc/teamcode/DifferentialSwerveTeleOp.java) OpMode uses standard swerve controls:
+
+- **Left Stick (X/Y):** Translates the robot in any direction.
+- **Right Stick (X):** Controls the rotation of the robot.
+
+## Implementation Details
+
+### Kinematics
+The code calculates the target velocity and angle for each pod based on the translation and rotation inputs. For a differential pod:
+- `Motor Left Power = Drive Power + Steer Power`
+- `Motor Right Power = Drive Power - Steer Power`
+
+### Steering Calibration
+The steering angle is tracked using the motor encoders. The pod angle change is calculated as:
+`deltaPodAngle = (deltaMotorLeft - deltaMotorRight) * STEERING_RADIANS_PER_ENCODER_TICK`
+
+The constant `STEERING_RADIANS_PER_ENCODER_TICK` must be calibrated for your specific gear ratio.
+
+### Optimizations
+- **Shortest Path Steering:** The pods will rotate no more than 90° to reach a target angle. If the required rotation is greater, the pod will flip its drive direction and rotate to the opposite angle.
+- **Heading Scaling:** Drive power is scaled by the cosine of the angle error, ensuring the robot doesn't drive off-course while the pods are still rotating to their targets.
+- **Cubic Input Shaping:** Control stick inputs are cubed to provide finer control at low speeds while maintaining maximum speed at full stick deflection.
+
+---
+
 ## FOR HACKCLUB STARDANCE
 My project is a differential swerve drivetrain for an FTC robot. A differential swerve drive is a holonomic drive, which allows the robot to move in any direction at any time. A differential drive is different from a co-axial swerve drive (used in FRC) as it uses both motors for thrust and direction instead of using one per. This allows for double the power while moving forward and turning, resulting in a faster drivetrain. I made this project mainly for fun and to test my skills in designing and manufacturing. It could benefit my robotics team in the next season, but that varies depending on the actual game presented. 
 
