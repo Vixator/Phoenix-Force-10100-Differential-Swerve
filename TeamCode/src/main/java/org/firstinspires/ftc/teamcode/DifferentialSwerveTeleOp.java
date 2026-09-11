@@ -1,15 +1,11 @@
 package org.firstinspires.ftc.teamcode;
 
-import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
 import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
-
-import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
-import org.firstinspires.ftc.robotcore.external.navigation.UnnormalizedAngleUnit;
 
 import java.util.List;
 
@@ -42,15 +38,7 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
     public static volatile double DRIVE_DEADBAND = 0.05;
     public static volatile double TURN_DEADBAND = 0.05;
     public static volatile double MAX_TURN_RATE_RADIANS_PER_SECOND = 3.0;
-    public static volatile double HEADING_KP = 2.0; // rad/s per rad
-    public static volatile double HEADING_KD = 0.15; // damping on Pinpoint angular velocity
-    public static volatile double MAX_HOLD_RATE_RADIANS_PER_SECOND = 1.5;
     public static volatile double STEERING_SLEW_RATE = 8.0; // normalized steering output/s; <= 0 disables
-
-    // Verify in INIT: signed heading must INCREASE on a clockwise chassis turn from above.
-    // -1 converts the conventional upright Pinpoint's CCW-positive yaw to our CW-positive angles.
-    // A fixed flat mounting yaw offset cancels when the Start reference is subtracted.
-    public static double PINPOINT_HEADING_SIGN = -1.0; // sampled once at INIT, never changed during drive
 
     // ==================== VELOCITY PID CONSTANTS ====================
     public static volatile double VEL_PID_KP = 10.0;
@@ -60,10 +48,9 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
     public static volatile double VEL_PID_KF = 32767.0 / MAX_MOTOR_TICKS_PER_SECOND;
 
     // ==================== STEERING CALIBRATION ====================
-    // Carrier rotation = half the signed side-gear difference; first bevel stages are 1:1.
-    // The 50:19 wheel gearing does NOT multiply carrier (pod) rotation. Verify with a measured turn.
-    private static final double STEERING_RADIANS_PER_ENCODER_TICK =
-            Math.PI * FIRST_STAGE_RATIO / MOTOR_TICKS_PER_REVOLUTION;
+    // REV Through Bore V1 quadrature encoders, 1:1 with pod azimuth.
+    // Both encoders were verified to count positive for clockwise rotation viewed from above.
+    private static final double STEERING_RADIANS_PER_ENCODER_TICK = 2.0 * Math.PI / 8192.0;
 
     // ==================== HARDWARE ====================
     // Control Hub motor ports:
@@ -76,12 +63,11 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
     private DcMotorEx leftMotorRight;
     private DcMotorEx rightMotorLeft;
     private DcMotorEx rightMotorRight;
-    private GoBildaPinpointDriver pinpoint;
-
-    private int lastLeftMotorLeftPos;
-    private int lastLeftMotorRightPos;
-    private int lastRightMotorLeftPos;
-    private int lastRightMotorRightPos;
+    // Expansion Hub encoder ports 0/1; these motor-channel handles are read-only.
+    private DcMotor encoderleft;
+    private DcMotor encoderright;
+    private int lastLeftEncoderPos;
+    private int lastRightEncoderPos;
 
     private double leftPodAngleRad;
     private double rightPodAngleRad;
@@ -116,7 +102,7 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
                 // Electrical forward propels both aligned pods forward.
                 motor.setDirection(DcMotorSimple.Direction.FORWARD);
                 motor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-                motor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+                // Velocity feedback does not require resetting absolute motor encoder counts.
                 motor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
             }
             stopAllMotors();
@@ -124,59 +110,42 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
             for (int i = 0; i < hubs.size(); i++) {
                 hubs.get(i).setBulkCachingMode(LynxModule.BulkCachingMode.MANUAL);
             }
-            pinpoint = hardwareMap.get(GoBildaPinpointDriver.class, "pinpoint");
-            final double headingSign = PINPOINT_HEADING_SIGN;
-            if (headingSign != -1.0 && headingSign != 1.0) {
-                throw new IllegalArgumentException("PINPOINT_HEADING_SIGN must be -1 or +1");
+            encoderleft = hardwareMap.get(DcMotor.class, "encoderleft");
+            encoderright = hardwareMap.get(DcMotor.class, "encoderright");
+            if (encoderleft.getPortNumber() != 0 || encoderright.getPortNumber() != 1
+                    || encoderleft.getController() != encoderright.getController()) {
+                throw new IllegalArgumentException(
+                        "Configure encoderleft/encoderright on Expansion Hub motor channels 0/1");
             }
-            pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
-            // Offsets/directions remain untouched until measured. X/Y position is NOT used by this teleop.
-            pinpoint.resetPosAndIMU();
-            long calibrationStarted = System.nanoTime();
+            for (DcMotorEx motor : motors) {
+                if (motor.getController() == encoderleft.getController()) {
+                    throw new IllegalArgumentException("Pod encoders must be on a separate hub from drive motors");
+                }
+            }
             telemetry.setMsTransmissionInterval(TELEMETRY_INTERVAL_MS);
-            while (opModeInInit()) {
-                pinpoint.update();
-                double heading = pinpoint.getHeading(AngleUnit.DEGREES);
-                telemetry.addLine("Keep stationary during calibration; wait at least 0.5 s for READY.");
-                telemetry.addLine("Then verify CW chassis turn increases signed heading; return to start.");
-                telemetry.addLine("Align chassis AND both pods forward before Start. INIT commands zero velocity.");
-                telemetry.addLine("Odometry offsets/directions unverified; X/Y position not used.");
-                telemetry.addData("Pinpoint", pinpoint.getDeviceStatus());
-                telemetry.addData("Raw heading (deg)", heading);
-                telemetry.addData("Signed CW heading (deg)", headingSign * heading);
-                telemetry.addData("X encoder", pinpoint.getEncoderX());
-                telemetry.addData("Y encoder", pinpoint.getEncoderY());
-                telemetry.update();
-                sleep(20); // INIT only, never in the drive loop
-            }
+            telemetry.addLine("ROBOT-CENTRIC: left stick = translation, right stick X = turn.");
+            telemetry.addLine("Align both pods forward BEFORE Start; Start captures pod zero.");
+            telemetry.addLine("INIT commands zero velocity. Releasing the turn stick commands zero rotation.");
+            telemetry.addData("Left pod encoder", encoderleft.getConnectionInfo());
+            telemetry.addData("Right pod encoder", encoderright.getConnectionInfo());
+            telemetry.update();
+            waitForStart();
             if (isStopRequested()) return;
-            pinpoint.update();
-            final double fieldHeadingOffset = headingSign * pinpoint.getHeading(AngleUnit.RADIANS);
-            if (System.nanoTime() - calibrationStarted < 500_000_000L
-                    || pinpoint.getDeviceStatus() != GoBildaPinpointDriver.DeviceStatus.READY
-                    || !Double.isFinite(fieldHeadingOffset)) {
-                telemetry.addLine("Start refused: Pinpoint not ready. Stop and initialize again.");
-                telemetry.update();
-                return;
-            }
 
             // Capture encoder baselines only after the manually aligned modules are at Start.
             for (int i = 0; i < hubs.size(); i++) {
                 if (hubs.get(i).getBulkData().isFake()) {
-                    telemetry.addLine("Start refused: motor encoder bulk read failed.");
+                    telemetry.addLine("Start refused: hub encoder bulk read failed.");
                     telemetry.update();
                     return;
                 }
             }
-            lastLeftMotorLeftPos = leftMotorLeft.getCurrentPosition();
-            lastLeftMotorRightPos = leftMotorRight.getCurrentPosition();
-            lastRightMotorLeftPos = rightMotorLeft.getCurrentPosition();
-            lastRightMotorRightPos = rightMotorRight.getCurrentPosition();
+            // Match the polarity test: bypass any motor-channel direction adjustment.
+            lastLeftEncoderPos = encoderleft.getController().getMotorCurrentPosition(encoderleft.getPortNumber());
+            lastRightEncoderPos = encoderright.getController().getMotorCurrentPosition(encoderright.getPortNumber());
             leftPodAngleRad = rightPodAngleRad = 0.0;
             double leftTargetAngle = 0.0;
             double rightTargetAngle = 0.0;
-            double headingTarget = 0.0;
-            boolean wasTurning = false;
             final double halfTrack = TRACK_WIDTH_METERS / 2.0;
             long lastLoop = System.nanoTime();
             long nextTelemetry = lastLoop;
@@ -187,24 +156,18 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
                 for (int i = 0; i < hubs.size(); i++) {
                     if (hubs.get(i).getBulkData().isFake()) encodersReady = false;
                 }
-                // Full update refreshes health AND yaw/rate. Heading-only update leaves health stale.
-                pinpoint.update();
-                double heading = wrapAngle(headingSign * pinpoint.getHeading(AngleUnit.RADIANS) - fieldHeadingOffset);
-                double headingRate = headingSign * pinpoint.getHeadingVelocity(UnnormalizedAngleUnit.RADIANS);
                 long now = System.nanoTime();
                 loopSeconds = Math.max(0.000001, (now - lastLoop) * 1e-9);
                 lastLoop = now;
-                if (!encodersReady || pinpoint.getDeviceStatus() != GoBildaPinpointDriver.DeviceStatus.READY
-                        || !Double.isFinite(heading) || !Double.isFinite(headingRate)
-                        || loopSeconds > MAX_LOOP_SECONDS) {
+                if (!encodersReady || loopSeconds > MAX_LOOP_SECONDS) {
                     stopAllMotors();
-                    telemetry.addData("Drive stopped; restart required", pinpoint.getDeviceStatus());
-                    telemetry.addData("Motor encoder read valid", encodersReady);
+                    telemetry.addLine("Drive stopped; restart required.");
+                    telemetry.addData("Hub encoder read valid", encodersReady);
                     telemetry.addData("Loop seconds", loopSeconds);
                     telemetry.update();
-                    break; // Detected faults require a restart; there is no robot-centric fallback.
+                    break; // Do not resume automatically after a feedback fault.
                 }
-                updatePodAnglesFromMotorEncoders();
+                updatePodAnglesFromEncoders();
 
                 double stickX = gamepad1.left_stick_x;
                 double stickY = -gamepad1.left_stick_y;
@@ -216,36 +179,23 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
                 double forward = stickY * inputScale;
                 double strafe = stickX * inputScale;
 
-                // Field -> robot, using CW-positive heading and right-positive strafe.
-                // At +90 deg chassis heading, field-forward becomes robot-left (negative strafe).
-                double cosHeading = Math.cos(heading);
-                double sinHeading = Math.sin(heading);
-                double robotForward = forward * cosHeading + strafe * sinHeading;
-                double robotStrafe = -forward * sinHeading + strafe * cosHeading;
-
                 double turn = gamepad1.right_stick_x;
                 double turnDeadband = clamp(TURN_DEADBAND, 0.0, 0.95);
                 if (Math.abs(turn) > turnDeadband) {
                     turn = Math.copySign((Math.abs(turn) - turnDeadband) / (1.0 - turnDeadband), turn);
                     turn = turn * turn * turn * clamp(TURN_INPUT_SCALE, 0.0, 1.0)
                             * Math.max(0.0, MAX_TURN_RATE_RADIANS_PER_SECOND);
-                    headingTarget = heading;
-                    wasTurning = true;
                 } else {
-                    // Capture release heading, not the preceding loop's heading or the field zero.
-                    if (wasTurning) headingTarget = heading;
-                    wasTurning = false;
-                    double limit = Math.max(0.0, MAX_HOLD_RATE_RADIANS_PER_SECOND);
-                    turn = clamp(HEADING_KP * wrapAngle(headingTarget - heading)
-                            - HEADING_KD * headingRate, -limit, limit);
+                    turn = 0.0;
                 }
 
+                // Robot-relative forward/right translation and clockwise-positive rotation.
                 // Convert angular velocity (rad/s) to normalized wheel speed before mixing.
                 double turnSpeed = turn * halfTrack / MAX_WHEEL_SPEED_METERS_PER_SECOND;
-                double leftForward = robotForward + turnSpeed;
-                double leftStrafe = robotStrafe;
-                double rightForward = robotForward - turnSpeed;
-                double rightStrafe = robotStrafe;
+                double leftForward = forward + turnSpeed;
+                double leftStrafe = strafe;
+                double rightForward = forward - turnSpeed;
+                double rightStrafe = strafe;
                 double leftSpeed = Math.hypot(leftForward, leftStrafe);
                 double rightSpeed = Math.hypot(rightForward, rightStrafe);
                 double maxMagnitude = Math.max(1.0, Math.max(leftSpeed, rightSpeed));
@@ -267,12 +217,11 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
                 if (now >= nextTelemetry) {
                     nextTelemetry = now + TELEMETRY_INTERVAL_MS * 1_000_000L;
                     applyVelocityPIDF(); // Only writes to the hub when tuning values actually change.
-                    telemetry.addData("Field heading CW (deg)", Math.toDegrees(heading));
-                    telemetry.addData("Hold heading CW (deg)", Math.toDegrees(headingTarget));
+                    telemetry.addLine("ROBOT-CENTRIC");
                     telemetry.addData("Left Pod Angle (deg)", Math.toDegrees(leftPodAngleRad));
                     telemetry.addData("Right Pod Angle (deg)", Math.toDegrees(rightPodAngleRad));
-                    telemetry.addData("Left Target (deg)", Math.toDegrees(leftTargetAngle));
-                    telemetry.addData("Right Target (deg)", Math.toDegrees(rightTargetAngle));
+                    telemetry.addData("Left requested vector (deg)", Math.toDegrees(leftTargetAngle));
+                    telemetry.addData("Right requested vector (deg)", Math.toDegrees(rightTargetAngle));
                     telemetry.addData("Drive Speed", driveSpeed);
                     telemetry.addData("Turn (rad/s CW)", turn);
                     telemetry.addData("Loop (ms)", loopSeconds * 1000.0);
@@ -280,10 +229,8 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
                     telemetry.addData("L Vel R (ticks/s)", leftMotorRight.getVelocity());
                     telemetry.addData("R Vel L (ticks/s)", rightMotorLeft.getVelocity());
                     telemetry.addData("R Vel R (ticks/s)", rightMotorRight.getVelocity());
-                    telemetry.addData("L Enc L", lastLeftMotorLeftPos);
-                    telemetry.addData("L Enc R", lastLeftMotorRightPos);
-                    telemetry.addData("R Enc L", lastRightMotorLeftPos);
-                    telemetry.addData("R Enc R", lastRightMotorRightPos);
+                    telemetry.addData("Left pod encoder (counts)", lastLeftEncoderPos);
+                    telemetry.addData("Right pod encoder (counts)", lastRightEncoderPos);
                     telemetry.update();
                 }
             }
@@ -298,25 +245,14 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
         }
     }
 
-    // Pod angle = integral of (motorLeft - motorRight) * steeringRatio
-    private void updatePodAnglesFromMotorEncoders() {
-        int currentLL = leftMotorLeft.getCurrentPosition();
-        int currentLR = leftMotorRight.getCurrentPosition();
-        int currentRL = rightMotorLeft.getCurrentPosition();
-        int currentRR = rightMotorRight.getCurrentPosition();
-
-        int deltaLL = currentLL - lastLeftMotorLeftPos;
-        int deltaLR = currentLR - lastLeftMotorRightPos;
-        int deltaRL = currentRL - lastRightMotorLeftPos;
-        int deltaRR = currentRR - lastRightMotorRightPos;
-
-        lastLeftMotorLeftPos = currentLL;
-        lastLeftMotorRightPos = currentLR;
-        lastRightMotorLeftPos = currentRL;
-        lastRightMotorRightPos = currentRR;
-
-        double leftDelta = ((double) deltaLL - deltaLR) * STEERING_RADIANS_PER_ENCODER_TICK;
-        double rightDelta = ((double) deltaRL - deltaRR) * STEERING_RADIANS_PER_ENCODER_TICK;
+    private void updatePodAnglesFromEncoders() {
+        int currentLeft = encoderleft.getController().getMotorCurrentPosition(encoderleft.getPortNumber());
+        int currentRight = encoderright.getController().getMotorCurrentPosition(encoderright.getPortNumber());
+        // Subtract as integers before conversion to handle signed counter rollover.
+        double leftDelta = (currentLeft - lastLeftEncoderPos) * STEERING_RADIANS_PER_ENCODER_TICK;
+        double rightDelta = (currentRight - lastRightEncoderPos) * STEERING_RADIANS_PER_ENCODER_TICK;
+        lastLeftEncoderPos = currentLeft;
+        lastRightEncoderPos = currentRight;
         leftPodAngleRad += leftDelta;
         rightPodAngleRad += rightDelta;
         leftPodRateRad = leftDelta / loopSeconds;
@@ -356,7 +292,7 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
             rightSteerPower = steerPower;
         }
 
-        // Reduce wheel motion while misaligned; this is module alignment, NOT chassis heading hold.
+        // Reduce wheel motion while the pod is misaligned with its requested travel direction.
         double headingScale = Math.max(0.0, Math.cos(angleError));
         headingScale = headingScale * headingScale;
 
@@ -409,9 +345,16 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
     }
 
     private void stopAllMotors() {
-        leftMotorLeft.setVelocity(0);
-        leftMotorRight.setVelocity(0);
-        rightMotorLeft.setVelocity(0);
-        rightMotorRight.setVelocity(0);
+        // A failure on one motor must not prevent stop attempts on the others.
+        RuntimeException failure = null;
+        DcMotorEx[] motors = {leftMotorLeft, leftMotorRight, rightMotorLeft, rightMotorRight};
+        for (DcMotorEx motor : motors) {
+            try {
+                motor.setVelocity(0);
+            } catch (RuntimeException exception) {
+                if (failure == null) failure = exception;
+            }
+        }
+        if (failure != null) throw failure;
     }
 }

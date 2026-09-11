@@ -1,10 +1,12 @@
 # Differential Swerve Drivetrain
 
-This project implements a **Differential Swerve** drivetrain for an FTC robot. Unlike traditional coaxial swerve drives that use one motor for steering and another for driving, a differential swerve uses two motors per pod to handle both tasks simultaneously. This allows the drivetrain to utilize the full power of both motors for either driving or steering, resulting in a more powerful and responsive system.
+This project implements a two-pod **differential swerve** drivetrain for an FTC robot. Each pod uses two motors whose combined motion controls wheel speed and pod azimuth. Driving and steering share the available motor-speed capacity.
+
+The current drive mode is **robot-centric**. It uses four drive motors and two dedicated pod encoders, with no Pinpoint, IMU, odometry, field-centric transform, or chassis heading hold. See [hardware.md](hardware.md) for wiring, specifications, calibration, and tuning notes.
 
 ## Hardware Configuration
 
-The current implementation in [DifferentialSwerveTeleOp.java](file:///C:/Users/preco/OneDrive/Documents/GitHub/Phoenix-Force-10100-Differential-Swerve/TeamCode/src/main/java/org/firstinspires/ftc/teamcode/DifferentialSwerveTeleOp.java) expects the following motor configuration on the Control Hub:
+The [drive TeleOp](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/DifferentialSwerveTeleOp.java) expects four goBILDA 5203-2402-0005, 1150 RPM motors on the Control Hub:
 
 | Port | Name | Description |
 | :--- | :--- | :--- |
@@ -13,32 +15,75 @@ The current implementation in [DifferentialSwerveTeleOp.java](file:///C:/Users/p
 | `2` | `motor2` | Right Pod: LEFT Motor |
 | `3` | `motor3` | Right Pod: RIGHT Motor |
 
-*Note: The right pod is physically flipped 180° relative to the left pod. This is accounted for in the software by reversing the motor directions for the right pod.*
+All four drive motors use software direction `FORWARD`. With both pods aligned forward, equal positive motor commands propel both pods forward. Drive-motor encoders provide velocity feedback, not pod-position feedback.
+
+Two REV Through Bore V1 encoders (REV-11-1271), in quadrature mode, connect to the Expansion Hub:
+
+| Encoder Port | Configuration Name | Measurement |
+| :--- | :--- | :--- |
+| `0` | `encoderleft` | Left pod azimuth |
+| `1` | `encoderright` | Right pod azimuth |
+
+Configure these names on the corresponding Expansion Hub **motor channels** so the SDK can access the encoder inputs. No motors need to be attached to these channels. Each encoder is geared 1:1 with pod rotation and provides **8192 counts per pod revolution**. Clockwise rotation viewed from above increases both counts.
 
 ## Controls
 
-The [DifferentialSwerveTeleOp](file:///C:/Users/preco/OneDrive/Documents/GitHub/Phoenix-Force-10100-Differential-Swerve/TeamCode/src/main/java/org/firstinspires/ftc/teamcode/DifferentialSwerveTeleOp.java) OpMode uses standard swerve controls:
+Select **Differential Swerve TeleOp** on the Driver Station.
 
-- **Left Stick (X/Y):** Translates the robot in any direction.
-- **Right Stick (X):** Controls the rotation of the robot.
+- **Left stick:** Robot-relative direction and speed. Up means robot-forward, right means robot-right. Translation uses a radial deadband followed by linear magnitude scaling.
+- **Right stick X:** Rotation about the midpoint between the pods. Right commands clockwise rotation viewed from above. Rotation uses a deadband and cubic shaping.
+- **Release right stick:** Commands zero chassis rotation; it does not actively hold a heading.
+- **Triggers:** Not used for driving.
+
+### Startup
+
+1. Verify the hardware names and connections above. Begin commissioning with reduced drive and steering limits and the wheels securely raised.
+2. Align both pods straight forward before pressing Start. INIT commands zero motor velocity; it does not disable the motors for free movement.
+3. Press Start to capture both pod encoder baselines as zero. Quadrature encoders do not identify forward automatically.
+4. Drive with the sticks. At zero requested pod velocity, the previous pod azimuth target is retained rather than forced forward.
+
+Detected hub-read faults or excessive loop delays stop driving and require an OpMode restart. Real motor response and gains still require robot testing.
+
+### Encoder Test
+
+Select [Swerve Pod Encoder Test](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/SwervePodEncoderTest.java). It reads the two encoders without commanding motor outputs and works during INIT or after Start.
+
+1. Align both pods forward and tap **A** to zero both displayed readings.
+2. Manually rotate each pod about 90 degrees clockwise viewed from above. Expect approximately **+2048 counts**.
+3. Confirm wheel rolling without pod rotation does not change the encoder reading.
+
+The reported left-pod measurement of +2063 counts is about 90.66 degrees. The specified 8192 counts/revolution remains unchanged, and both encoder signs have been confirmed clockwise-positive.
 
 ## Implementation Details
 
 ### Kinematics
-The code calculates the target velocity and angle for each pod based on the translation and rotation inputs. For a differential pod:
-- `Motor Left Power = Drive Power + Steer Power`
-- `Motor Right Power = Drive Power - Steer Power`
+The code calculates each pod's requested travel vector, then combines wheel drive and steering into motor velocity commands:
+- `left motor velocity = drive velocity + steer velocity`
+- `right motor velocity = drive velocity - steer velocity`
+
+Motor commands and velocity telemetry use **encoder ticks/second**, not RPM. The calculated 1150 RPM motor limit is approximately 2781.08 ticks/second. Steering receives priority when the combined requests exceed motor capacity; wheel drive uses the remaining headroom.
 
 ### Steering Calibration
-The steering angle is tracked using the motor encoders. The pod angle change is calculated as:
-`deltaPodAngle = (deltaMotorLeft - deltaMotorRight) * STEERING_RADIANS_PER_ENCODER_TICK`
+Pod azimuth comes only from the dedicated Expansion Hub encoders:
+`deltaPodAngle = deltaPodEncoderCounts * (2 * PI / 8192)`
 
-The constant `STEERING_RADIANS_PER_ENCODER_TICK` must be calibrated for your specific gear ratio.
+Raw controller reads preserve the polarity measured by the diagnostic, independent of motor-channel direction settings. Steering damping uses pod angular rate calculated from successive readings and elapsed time.
 
 ### Optimizations
-- **Shortest Path Steering:** The pods will rotate no more than 90° to reach a target angle. If the required rotation is greater, the pod will flip its drive direction and rotate to the opposite angle.
-- **Heading Scaling:** Drive power is scaled by the cosine of the angle error, ensuring the robot doesn't drive off-course while the pods are still rotating to their targets.
-- **Cubic Input Shaping:** Control stick inputs are cubed to provide finer control at low speeds while maintaining maximum speed at full stick deflection.
+- **Shortest-path steering:** Optimized steering error is at most 90 degrees; wheel direction reverses when the equivalent azimuth is closer. This bounds the target error, not physical overshoot.
+- **Alignment scaling:** Wheel drive is reduced by cosine-squared steering error while the pod is misaligned.
+- **Steering slew limiting:** Time-based limiting reduces abrupt changes to the steering command.
+- **Bulk reads:** One validated snapshot per configured hub per drive loop; encoder getters reuse that snapshot.
+- **Telemetry:** Updates at 10 Hz and reuses stored pod counts. Requested-vector angles may differ from optimized pod angles when wheel direction is reversed.
+- **Velocity PIDF:** Applied to the four drive motors only, with hardware writes repeated only when tuning values change.
+
+### Tuning and Validation
+
+PIDF/PD gains, deadbands, slew rate, and operating limits are preliminary. Public static tuning fields are retained, but **FTC Dashboard is not installed or registered**, so live Dashboard editing is not available yet. The no-load wheel-speed estimate is not a measured loaded limit.
+
+The debug APK has built successfully against the project's FTC SDK, and simulated regression tests cover control math and fault handling. These do not establish physical stability, loaded speed, or hardware loop timing. A frozen/disconnected quadrature encoder can still produce valid hub data and is not reliably detected by the current checks.
+
+Build from the repository root on Windows with `./gradlew.bat :TeamCode:assembleDebug`.
 
 ---
 
