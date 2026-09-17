@@ -3,6 +3,7 @@ package org.firstinspires.ftc.teamcode;
 import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.AnalogInput;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
@@ -47,11 +48,6 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
     // REV velocity PIDF uses encoder ticks/s and a 32767 full-scale controller output, not volts/RPM.
     public static volatile double VEL_PID_KF = 32767.0 / MAX_MOTOR_TICKS_PER_SECOND;
 
-    // ==================== STEERING CALIBRATION ====================
-    // REV Through Bore V1 quadrature encoders, 1:1 with pod azimuth.
-    // Both encoders were verified to count positive for clockwise rotation viewed from above.
-    private static final double STEERING_RADIANS_PER_ENCODER_TICK = 2.0 * Math.PI / 8192.0;
-
     // ==================== HARDWARE ====================
     // Control Hub motor ports:
     //   motor0 = Left Pod LEFT motor
@@ -66,8 +62,8 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
     // Expansion Hub encoder ports 0/1; these motor-channel handles are read-only.
     private DcMotor encoderleft;
     private DcMotor encoderright;
-    private int lastLeftEncoderPos;
-    private int lastRightEncoderPos;
+    private final SwervePodEncoder leftEncoder = new SwervePodEncoder(SwervePodEncoder.LEFT_QUADRATURE_SIGN);
+    private final SwervePodEncoder rightEncoder = new SwervePodEncoder(SwervePodEncoder.RIGHT_QUADRATURE_SIGN);
 
     private double leftPodAngleRad;
     private double rightPodAngleRad;
@@ -123,8 +119,17 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
                 }
             }
             telemetry.setMsTransmissionInterval(TELEMETRY_INTERVAL_MS);
+            if (!SwervePodEncoder.calibrationReady()) {
+                telemetry.addLine("Drive disabled: run Swerve Pod Encoder Test and set SwervePodEncoder calibration.");
+                telemetry.addLine("Forward references, signs and raw counts/revolution must be verified first.");
+                telemetry.update();
+                waitForStart();
+                return;
+            }
+            AnalogInput leftAbsolute = hardwareMap.get(AnalogInput.class, SwervePodEncoder.LEFT_ANALOG_NAME);
+            AnalogInput rightAbsolute = hardwareMap.get(AnalogInput.class, SwervePodEncoder.RIGHT_ANALOG_NAME);
             telemetry.addLine("ROBOT-CENTRIC: left stick = translation, right stick X = turn.");
-            telemetry.addLine("Align both pods forward BEFORE Start; Start captures pod zero.");
+            telemetry.addLine("Start reads absolute azimuth, then tracks quadrature only. Keep pods stationary at Start.");
             telemetry.addLine("INIT commands zero velocity. Releasing the turn stick commands zero rotation.");
             telemetry.addData("Left pod encoder", encoderleft.getConnectionInfo());
             telemetry.addData("Right pod encoder", encoderright.getConnectionInfo());
@@ -132,7 +137,7 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
             waitForStart();
             if (isStopRequested()) return;
 
-            // Capture encoder baselines only after the manually aligned modules are at Start.
+            // Fresh snapshots include any pod movement during INIT. Analog is used only here.
             for (int i = 0; i < hubs.size(); i++) {
                 if (hubs.get(i).getBulkData().isFake()) {
                     telemetry.addLine("Start refused: hub encoder bulk read failed.");
@@ -141,11 +146,25 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
                 }
             }
             // Match the polarity test: bypass any motor-channel direction adjustment.
-            lastLeftEncoderPos = encoderleft.getController().getMotorCurrentPosition(encoderleft.getPortNumber());
-            lastRightEncoderPos = encoderright.getController().getMotorCurrentPosition(encoderright.getPortNumber());
-            leftPodAngleRad = rightPodAngleRad = 0.0;
-            double leftTargetAngle = 0.0;
-            double rightTargetAngle = 0.0;
+            double leftVolts = leftAbsolute.getVoltage();
+            double rightVolts = rightAbsolute.getVoltage();
+            if (!SwervePodEncoder.validVoltage(leftVolts) || !SwervePodEncoder.validVoltage(rightVolts)) {
+                telemetry.addLine("Start refused: absolute encoder voltage outside 0..3.2 V.");
+                telemetry.addData("Left/right volts", "%.4f / %.4f", leftVolts, rightVolts);
+                telemetry.update();
+                return;
+            }
+            leftPodAngleRad = SwervePodEncoder.absoluteRadians(leftVolts,
+                    SwervePodEncoder.LEFT_FORWARD_DEGREES, SwervePodEncoder.LEFT_ANALOG_SIGN);
+            rightPodAngleRad = SwervePodEncoder.absoluteRadians(rightVolts,
+                    SwervePodEncoder.RIGHT_FORWARD_DEGREES, SwervePodEncoder.RIGHT_ANALOG_SIGN);
+            leftEncoder.seed(leftPodAngleRad,
+                    encoderleft.getController().getMotorCurrentPosition(encoderleft.getPortNumber()));
+            rightEncoder.seed(rightPodAngleRad,
+                    encoderright.getController().getMotorCurrentPosition(encoderright.getPortNumber()));
+            // Preserve even small measured startup offsets instead of declaring them to be zero.
+            double leftTargetAngle = leftPodAngleRad;
+            double rightTargetAngle = rightPodAngleRad;
             final double halfTrack = TRACK_WIDTH_METERS / 2.0;
             long lastLoop = System.nanoTime();
             long nextTelemetry = lastLoop;
@@ -229,8 +248,8 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
                     telemetry.addData("L Vel R (ticks/s)", leftMotorRight.getVelocity());
                     telemetry.addData("R Vel L (ticks/s)", rightMotorLeft.getVelocity());
                     telemetry.addData("R Vel R (ticks/s)", rightMotorRight.getVelocity());
-                    telemetry.addData("Left pod encoder (counts)", lastLeftEncoderPos);
-                    telemetry.addData("Right pod encoder (counts)", lastRightEncoderPos);
+                    telemetry.addData("Left pod encoder (counts)", leftEncoder.getCount());
+                    telemetry.addData("Right pod encoder (counts)", rightEncoder.getCount());
                     telemetry.update();
                 }
             }
@@ -248,18 +267,12 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
     private void updatePodAnglesFromEncoders() {
         int currentLeft = encoderleft.getController().getMotorCurrentPosition(encoderleft.getPortNumber());
         int currentRight = encoderright.getController().getMotorCurrentPosition(encoderright.getPortNumber());
-        // Subtract as integers before conversion to handle signed counter rollover.
-        double leftDelta = (currentLeft - lastLeftEncoderPos) * STEERING_RADIANS_PER_ENCODER_TICK;
-        double rightDelta = (currentRight - lastRightEncoderPos) * STEERING_RADIANS_PER_ENCODER_TICK;
-        lastLeftEncoderPos = currentLeft;
-        lastRightEncoderPos = currentRight;
-        leftPodAngleRad += leftDelta;
-        rightPodAngleRad += rightDelta;
-        leftPodRateRad = leftDelta / loopSeconds;
-        rightPodRateRad = rightDelta / loopSeconds;
-
-        leftPodAngleRad = wrapAngle(leftPodAngleRad);
-        rightPodAngleRad = wrapAngle(rightPodAngleRad);
+        leftEncoder.update(currentLeft, loopSeconds);
+        rightEncoder.update(currentRight, loopSeconds);
+        leftPodAngleRad = leftEncoder.getAngleRadians();
+        rightPodAngleRad = rightEncoder.getAngleRadians();
+        leftPodRateRad = leftEncoder.getRateRadiansPerSecond();
+        rightPodRateRad = rightEncoder.getRateRadiansPerSecond();
     }
 
     // Velocity-based pod control with PD steering
