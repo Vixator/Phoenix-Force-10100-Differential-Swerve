@@ -20,6 +20,9 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
             MOTOR_FREE_SPEED_RPM * MOTOR_TICKS_PER_REVOLUTION / 60.0;
     private static final double FIRST_STAGE_RATIO = 16.0 / 54.0;
     private static final double SECOND_STAGE_RATIO = 50.0 / 19.0;
+    // Differential pod: each motor uses a 1:1 bevel pair, then 16:54; each 54
+    // gear is fixed to a 50 gear, and both 50 gears engage the common 19 wheel gear.
+    // Equal motor components drive the wheel; their difference steers the pod.
     private static final double TOTAL_DRIVE_RATIO = FIRST_STAGE_RATIO * SECOND_STAGE_RATIO;
     private static final double WHEEL_DIAMETER_METERS = 0.06;
     private static final double WHEEL_CIRCUMFERENCE_METERS = Math.PI * WHEEL_DIAMETER_METERS;
@@ -54,7 +57,8 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
     //   motor1 = Left Pod RIGHT motor
     //   motor2 = Right Pod LEFT motor
     //   motor3 = Right Pod RIGHT motor
-    // Both pods: equal positive motors drive forward; left positive/right negative steers clockwise.
+    // Both pods: equal positive motors drive forward; left positive/right negative
+    // steers clockwise through the known differential gear arrangement.
     private DcMotorEx leftMotorLeft;
     private DcMotorEx leftMotorRight;
     private DcMotorEx rightMotorLeft;
@@ -129,42 +133,29 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
             AnalogInput leftAbsolute = hardwareMap.get(AnalogInput.class, SwervePodEncoder.LEFT_ANALOG_NAME);
             AnalogInput rightAbsolute = hardwareMap.get(AnalogInput.class, SwervePodEncoder.RIGHT_ANALOG_NAME);
             telemetry.addLine("ROBOT-CENTRIC: left stick = translation, right stick X = turn.");
-            telemetry.addLine("Start reads absolute azimuth, then tracks quadrature only. Keep pods stationary at Start.");
-            telemetry.addLine("INIT commands zero velocity. Releasing the turn stick commands zero rotation.");
+            telemetry.addLine("Start aligns both pods to their analog forward references, then tracks quadrature only.");
+            telemetry.addLine("INIT commands zero velocity. Keep clear during automatic startup alignment.");
             telemetry.addData("Left pod encoder", encoderleft.getConnectionInfo());
             telemetry.addData("Right pod encoder", encoderright.getConnectionInfo());
             telemetry.update();
             waitForStart();
             if (isStopRequested()) return;
 
-            // Fresh snapshots include any pod movement during INIT. Analog is used only here.
-            for (int i = 0; i < hubs.size(); i++) {
-                if (hubs.get(i).getBulkData().isFake()) {
-                    telemetry.addLine("Start refused: hub encoder bulk read failed.");
-                    telemetry.update();
-                    return;
-                }
-            }
-            // Match the polarity test: bypass any motor-channel direction adjustment.
-            double leftVolts = leftAbsolute.getVoltage();
-            double rightVolts = rightAbsolute.getVoltage();
-            if (!SwervePodEncoder.validVoltage(leftVolts) || !SwervePodEncoder.validVoltage(rightVolts)) {
-                telemetry.addLine("Start refused: absolute encoder voltage outside 0..3.2 V.");
-                telemetry.addData("Left/right volts", "%.4f / %.4f", leftVolts, rightVolts);
+            // Before accepting driver input, actively align both pods to their measured
+            // analog forward references. This establishes mechanical/electrical zero.
+            if (!alignPodsToForward(leftAbsolute, rightAbsolute, hubs)) {
+                telemetry.addLine("Start refused: pod forward alignment failed or was stopped.");
                 telemetry.update();
                 return;
             }
-            leftPodAngleRad = SwervePodEncoder.absoluteRadians(leftVolts,
-                    SwervePodEncoder.LEFT_FORWARD_DEGREES, SwervePodEncoder.LEFT_ANALOG_SIGN);
-            rightPodAngleRad = SwervePodEncoder.absoluteRadians(rightVolts,
-                    SwervePodEncoder.RIGHT_FORWARD_DEGREES, SwervePodEncoder.RIGHT_ANALOG_SIGN);
-            leftEncoder.seed(leftPodAngleRad,
-                    encoderleft.getController().getMotorCurrentPosition(encoderleft.getPortNumber()));
-            rightEncoder.seed(rightPodAngleRad,
-                    encoderright.getController().getMotorCurrentPosition(encoderright.getPortNumber()));
-            // Preserve even small measured startup offsets instead of declaring them to be zero.
-            double leftTargetAngle = leftPodAngleRad;
-            double rightTargetAngle = rightPodAngleRad;
+            int leftStartCount = encoderleft.getController().getMotorCurrentPosition(encoderleft.getPortNumber());
+            int rightStartCount = encoderright.getController().getMotorCurrentPosition(encoderright.getPortNumber());
+            leftPodAngleRad = 0.0;
+            rightPodAngleRad = 0.0;
+            leftEncoder.seed(0.0, leftStartCount);
+            rightEncoder.seed(0.0, rightStartCount);
+            double leftTargetAngle = 0.0;
+            double rightTargetAngle = 0.0;
             final double halfTrack = TRACK_WIDTH_METERS / 2.0;
             long lastLoop = System.nanoTime();
             long nextTelemetry = lastLoop;
@@ -262,6 +253,56 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
                 }
             }
         }
+    }
+
+    private boolean alignPodsToForward(AnalogInput leftAbsolute, AnalogInput rightAbsolute,
+                                        List<LynxModule> hubs) {
+        PodAlignmentController leftAlignment = new PodAlignmentController(
+                SwervePodEncoder.LEFT_FORWARD_DEGREES, SwervePodEncoder.LEFT_ANALOG_SIGN);
+        PodAlignmentController rightAlignment = new PodAlignmentController(
+                SwervePodEncoder.RIGHT_FORWARD_DEGREES, SwervePodEncoder.RIGHT_ANALOG_SIGN);
+        leftAlignment.start();
+        rightAlignment.start();
+        long lastSample = System.nanoTime();
+        while (opModeIsActive() && !isStopRequested()) {
+            boolean validSnapshot = true;
+            for (LynxModule hub : hubs) {
+                if (hub.getBulkData().isFake()) validSnapshot = false;
+            }
+            double leftVolts = leftAbsolute.getVoltage();
+            double rightVolts = rightAbsolute.getVoltage();
+            double seconds = Math.max(0.0, (System.nanoTime() - lastSample) * 1e-9);
+            lastSample = System.nanoTime();
+            if (!validSnapshot) {
+                leftAlignment.abort("invalid hub snapshot");
+                rightAlignment.abort("invalid hub snapshot");
+            } else {
+                leftAlignment.step(leftVolts, seconds);
+                rightAlignment.step(rightVolts, seconds);
+            }
+            telemetry.addLine("ALIGNING PODS TO ANALOG FORWARD REFERENCES");
+            telemetry.addData("Left target/error (deg)", "%.2f / %.2f",
+                    leftAlignment.getTargetDegrees(), leftAlignment.getErrorDegrees());
+            telemetry.addData("Right target/error (deg)", "%.2f / %.2f",
+                    rightAlignment.getTargetDegrees(), rightAlignment.getErrorDegrees());
+            telemetry.addData("Alignment status", leftAlignment.getStatus() + " / " + rightAlignment.getStatus());
+            telemetry.update();
+            if (!leftAlignment.isActive() && !rightAlignment.isActive()) {
+                stopAllMotors();
+                return leftAlignment.isComplete() && rightAlignment.isComplete();
+            }
+            setAnalogSteeringVelocity(leftAlignment.getCommand(), rightAlignment.getCommand());
+            idle();
+        }
+        stopAllMotors();
+        return false;
+    }
+
+    private void setAnalogSteeringVelocity(double leftSteer, double rightSteer) {
+        leftMotorLeft.setVelocity(leftSteer * MAX_MOTOR_TICKS_PER_SECOND);
+        leftMotorRight.setVelocity(-leftSteer * MAX_MOTOR_TICKS_PER_SECOND);
+        rightMotorLeft.setVelocity(rightSteer * MAX_MOTOR_TICKS_PER_SECOND);
+        rightMotorRight.setVelocity(-rightSteer * MAX_MOTOR_TICKS_PER_SECOND);
     }
 
     private void updatePodAnglesFromEncoders() {

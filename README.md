@@ -2,7 +2,7 @@
 
 This project implements a two-pod **differential swerve** drivetrain for an FTC robot. Each pod uses two motors whose combined motion controls wheel speed and pod azimuth. Driving and steering share the available motor-speed capacity.
 
-The current drive mode is **robot-centric**. It uses four drive motors and two dedicated pod encoders, with no Pinpoint, IMU, odometry, field-centric transform, or chassis heading hold. See [hardware.md](hardware.md) for wiring, specifications, calibration, and tuning notes.
+The current drive mode is **robot-centric**. It uses four drive motors and two dedicated pod encoders, with no Pinpoint, IMU, odometry, field-centric transform, or chassis heading hold. See [hardware.md](hardware.md) for wiring, specifications, calibration, and tuning notes, [PROJECT_DESIGN.md](PROJECT_DESIGN.md) for architecture and design decisions, and [HUMAN_TASKS.md](HUMAN_TASKS.md) for every physical calibration and commissioning task.
 
 ## Hardware Configuration
 
@@ -15,7 +15,7 @@ The [drive TeleOp](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/Differe
 | `2` | `motor2` | Right Pod: LEFT Motor |
 | `3` | `motor3` | Right Pod: RIGHT Motor |
 
-All four drive motors use software direction `FORWARD`. The controller assumes equal positive motor commands propel each aligned pod in the directed robot-forward travel direction; this must still be physically validated on both modules. Drive-motor encoders provide velocity feedback, not pod-position feedback.
+All four drive motors use software direction `FORWARD`. The controller assumes equal positive motor commands propel each aligned pod in the directed robot-forward travel direction; this must still be physically validated on both modules. Drive-motor encoders provide motor velocity/count feedback, but the active drive controller uses the dedicated pod quadrature encoders for pod-position feedback.
 
 Two **Melonbotics Through Bore Encoders** provide absolute analog startup position and quadrature tracking. Their quadrature connections on the Expansion Hub are unchanged:
 
@@ -24,7 +24,7 @@ Two **Melonbotics Through Bore Encoders** provide absolute analog startup positi
 | `0` | `encoderleft` | Left pod azimuth |
 | `1` | `encoderright` | Right pod azimuth |
 
-Configure these names on the corresponding Expansion Hub **motor channels** so the SDK can access the encoder inputs. No motors need to be attached; both OpModes use these channels read-only, without output, mode, direction, or hardware-reset commands. Each encoder is geared 1:1 with pod rotation. Melonbotics publishes **1024 CPR**, but whether CPR means decoded counts or quadrature cycles is explicitly provisional here. The code currently assumes 1024 raw hub counts/revolution; measure a complete pod revolution and both signs before enabling drive.
+Configure these names on the corresponding Expansion Hub **motor channels** so the SDK can access the encoder inputs. No motors need to be attached; quadrature channels are read-only and never receive output or hardware-reset commands. The diagnostic’s explicit alignment action commands only the selected drive pod motors. Each encoder body contains both outputs and is mechanically **1:1 with pod rotation**. Melonbotics specifies **1024 CPR quadrature output resolution** on the 4-pin JST; the code uses 1024 counts/revolution, while a complete-revolution measurement still verifies the raw hub convention and sign before enabling drive.
 
 | Control Hub Analog Channel | Configuration Name | Measurement |
 | :--- | :--- | :--- |
@@ -44,23 +44,24 @@ Select **Differential Swerve TeleOp** on the Driver Station.
 
 ### Startup
 
-1. Complete the read-only calibration measurements below first. `SwervePodEncoder.CALIBRATION_VERIFIED = false` and both forward references are `NaN`, intentionally blocking powered drive until measured references, resolution, and signs are verified.
+1. Complete the physical calibration and verification checklist in [HUMAN_TASKS.md](HUMAN_TASKS.md) first. `SwervePodEncoder.CALIBRATION_VERIFIED = false` and both forward references are `NaN`, intentionally blocking powered drive until measured references and signs are verified.
 2. After calibration is entered and verified, check hardware names and connections. Begin powered commissioning with reduced drive and steering limits and the wheels securely raised. INIT commands zero motor velocity; it does not disable the motors for free movement.
-3. Keep pods stationary at Start. After INIT, the drive takes fresh analog readings and matching quadrature baselines, preserving any movement during INIT and even small offsets from calibrated forward. Each initial steering target is its measured angle, not forced zero; manual forward alignment at every Start is no longer required.
+3. After Start, the drive automatically steers both pods to their independent analog forward references. It stops and refuses to drive if alignment times out, analog feedback is invalid, or a hub read fails. Once both references are reached, quadrature baselines are captured and both pod angles are initialized to zero.
 4. Drive with the sticks. At zero requested pod velocity, the previous pod azimuth target is retained rather than forced forward.
 
 Detected hub-read faults or excessive loop delays stop driving and require an OpMode restart. Real motor response and gains still require robot testing.
 
 ### Encoder Test
 
-Select [Swerve Pod Encoder Test](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/SwervePodEncoderTest.java). It reads the two encoders without commanding motor outputs and works during INIT or after Start.
+Select [Swerve Pod Encoder Test](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/SwervePodEncoderTest.java). Its normal measurement path is read-only, and its explicit Y alignment action commands only the selected pod’s drive motors. It works during INIT or after Start.
 
-1. Move one pod at a time to confirm `absenc` is left/channel 0 and `absenc2` is right/channel 1, and check the corresponding quadrature channel.
-2. Align both directed wheel-travel axes robot-forward and tap **A**. With valid analog readings, this captures both forward voltages/raw degrees and zeros displayed quadrature deltas in software only. It does not reset hardware counts or save drive calibration.
-3. Manually rotate each pod 90 degrees clockwise viewed from above, then continue to one complete revolution from the capture position. Record signed raw hub count deltas and analog direction; do not infer resolution from the provisional degree display.
-4. Confirm wheel rolling without pod rotation does not change the encoder reading. Send back **both forward voltages/raw degrees, each pod's signed count deltas at CW 90 degrees and a full revolution, analog increase/decrease direction, and verified channel assignment** before calibration constants are finalized.
+1. Run [Pod Analog Encoder Test](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/PodAnalogEncoderTest.java). LB selects the left pod, RB selects the right pod, A steers the selected pod toward its configured forward analog reference, and B aborts. If a reference has not yet been entered, the test targets analog 0 degrees. Confirm `absenc` is left/channel 0 and `absenc2` is right/channel 1.
+2. Run [Motor Encoder Count Test](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/MotorEncoderCountTest.java) with no motor power to record all four motor encoder counts while manually rotating a pod. It is read-only with respect to motor power. The current differential topology is known: each motor drives its own 16:54 path, the 54-tooth gear is fixed to a 50-tooth gear, and the two 50-tooth gears engage the common 19-tooth wheel gear. Equal motor motion is the wheel-drive component; opposite motor motion is the pod-steering component. Use the displayed count deltas to confirm the physical assembly and signs.
+3. Run [Swerve Pod Encoder Test](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/SwervePodEncoderTest.java). LB/RB select the pod, A zeroes the selected quadrature display in software, X starts/finishes a manual 360-degree measurement, Y steers the selected pod to its analog forward reference, and B aborts alignment.
+4. Check the corresponding quadrature channel and verify a complete revolution is approximately 1024 counts with the correct clockwise sign.
+5. Confirm wheel rolling without pod rotation does not change the pod encoder reading. Send back **both forward analog values/raw degrees, each pod's signed count delta for a full revolution, analog increase/decrease direction, and verified channel assignment** before calibration constants are finalized.
 
-The enhanced existing test shows raw counts, provisional quadrature degrees, analog voltage/raw degrees, CW/CCW margins to the DAC wrap, and analog-versus-quadrature comparison after capture, during both INIT and run. Captures are intentionally **session-only**, with no persistence or automatic transfer to the drive; report the measurements back. Old REV count measurements do not establish the Melonbotics resolution or signs.
+The combined test shows raw counts, quadrature degrees, analog voltage/raw degrees, target/error, wrap margins, and full-revolution results during INIT and run. Dedicated [Pod Analog Encoder Test](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/PodAnalogEncoderTest.java) and [Motor Encoder Count Test](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/MotorEncoderCountTest.java) OpModes are also available. Quadrature zeroes and measurements are intentionally **session-only**, with no hardware reset, persistence, or automatic transfer to the drive; record the results in `HUMAN_TASKS.md` and then update the shared constants.
 
 ## Implementation Details
 
@@ -69,7 +70,13 @@ The code calculates each pod's requested travel vector, then combines wheel driv
 - `left motor velocity = drive velocity + steer velocity`
 - `right motor velocity = drive velocity - steer velocity`
 
-Motor commands and velocity telemetry use **encoder ticks/second**, not RPM. The calculated 1150 RPM motor limit is approximately 2781.08 ticks/second. Steering receives priority when the combined requests exceed motor capacity; wheel drive uses the remaining headroom.
+Motor commands and velocity telemetry use **encoder ticks/second**, not RPM. The supplied motor specification is 1150 RPM no-load, 5.2:1 planetary gearing, 28 pulses per encoder-shaft revolution, and 145.1 pulses per gearbox-output revolution. The calculated motor limit is approximately 2781.08 ticks/second. Steering receives priority when the combined requests exceed motor capacity; wheel drive uses the remaining headroom.
+
+### Mechanical Ratio and Steering Calibration
+
+The programmed differential gear setup uses a 1:1 initial bevel pair for each motor, then a 16-tooth gear driving a 54-tooth gear. Each 54-tooth gear is rigidly attached to a 50-tooth gear, and the two 50-tooth gears engage the common 19-tooth wheel gear. The programmed wheel-drive ratio is `(16/54) * (50/19) = 0.779727`. Equal motor components drive the wheel; the difference between the motor components steers the pod. This is the ratio and topology reflected in the BOM and source code; the old 24/108 gear description is obsolete.
+
+The 60 mm wheel and 1150 RPM motor rating produce a theoretical no-load wheel speed of approximately 2.817 m/s. This is not a loaded operating limit.
 
 ### Steering Calibration
 The shared [SwervePodEncoder](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/SwervePodEncoder.java) seeds azimuth at Start with `wrap((rawAnalogDegrees - forwardDegrees) * analogSign)`, then uses only the dedicated Expansion Hub quadrature encoders:
@@ -93,7 +100,7 @@ Mechanically indexing each encoder near **1.6 V = 180 raw degrees** at directed 
 
 PIDF/PD gains, deadbands, slew rate, and operating limits are preliminary. Public static tuning fields are retained, but **FTC Dashboard is not installed or registered**, so live Dashboard editing is not available yet. The no-load wheel-speed estimate is not a measured loaded limit.
 
-The debug APK build and 15 shared-tracker unit tests passed using `./gradlew.bat :TeamCode:testDebugUnitTest :TeamCode:assembleDebug`. Tests cover voltage conversion, independent forward references, signs, small startup offsets, quadrature accumulation, rollover, and invalid inputs. They do not exercise real hub wiring or establish physical stability, loaded speed, or hardware loop timing. **Zero volts can be a valid absolute position or a disconnected sensor**; range checks are not reliable disconnect protection. Frozen/disconnected quadrature feedback can also return valid hub data, and runtime analog correction or reliable sensor-disconnect detection is not implemented.
+The debug APK build and shared-tracker unit tests passed using `./gradlew.bat :TeamCode:testDebugUnitTest :TeamCode:assembleDebug`. Tests cover voltage conversion, independent forward references, signs, analog target error, small startup offsets, quadrature accumulation, rollover, and invalid inputs. Complete the real-world calibration and commissioning checklist in [HUMAN_TASKS.md](HUMAN_TASKS.md); software tests cannot establish wiring, physical signs, loaded performance, or safe mechanical behavior. They do not exercise real hub wiring or establish physical stability, loaded speed, or hardware loop timing. **Zero volts can be a valid absolute position or a disconnected sensor**; range checks are not reliable disconnect protection. Frozen/disconnected quadrature feedback can also return valid hub data, and runtime analog correction or reliable sensor-disconnect detection is not implemented.
 
 Build from the repository root on Windows with `./gradlew.bat :TeamCode:assembleDebug`.
 

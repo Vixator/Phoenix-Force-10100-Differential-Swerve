@@ -1,6 +1,6 @@
 # Drivetrain Hardware
 
-This document describes the current [Differential Swerve TeleOp](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/DifferentialSwerveTeleOp.java) and [pod encoder diagnostic](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/SwervePodEncoderTest.java). See [README.md](README.md) for the operating overview.
+This document describes the current [Differential Swerve TeleOp](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/DifferentialSwerveTeleOp.java), [combined pod encoder diagnostic](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/SwervePodEncoderTest.java), [analog encoder display](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/PodAnalogEncoderTest.java), and [motor encoder count diagnostic](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/MotorEncoderCountTest.java). See [README.md](README.md) for the operating overview, [PROJECT_DESIGN.md](PROJECT_DESIGN.md) for architecture and coding requirements, and [HUMAN_TASKS.md](HUMAN_TASKS.md) for the complete human-run calibration checklist.
 
 ## Current Scope
 
@@ -19,11 +19,11 @@ Earlier Pinpoint mounting and field-centric setup notes describe a superseded co
 
 - Four goBILDA 5203-2402-0005 Yellow Jacket motors with 5.2:1 planetary gearboxes.
 - Rated no-load output speed: **1150 RPM at 12 V**.
-- Built-in encoder resolution: **145.1 ticks per gearbox-output revolution**; 28 at the encoder shaft is not the output-shaft value.
+- Built-in encoder resolution: **28 pulses per encoder-shaft revolution** and **145.1 pulses per gearbox-output revolution**; 28 at the encoder shaft is not the output-shaft value.
 - Each motor encoder connects to the encoder port matching its motor port on the Control Hub.
 - All four motors are wired red-to-red/black-to-black and use software direction `FORWARD`.
 - The controller assumes both positive motors propel an aligned pod in its directed robot-forward travel direction, and left positive/right negative rotates either pod clockwise viewed from above. Physically validate both assumptions on each module; forward encoder references do not validate motor directions.
-- The four built-in encoders provide motor-velocity feedback only. Their positions are not used to estimate pod azimuth, and the OpMode does not reset their counts.
+- The four built-in encoders provide motor-velocity and raw count feedback. The active drive OpMode does not use their positions to estimate pod azimuth and does not reset their counts. `Motor Encoder Count Test` reads these counts with no motor power so the mechanical differential relationship can be measured safely.
 
 The motors run in `RUN_USING_ENCODER` with velocity PIDF and `BRAKE` zero-power behavior. `setVelocity()` and motor velocity telemetry use ticks/second. The calculated no-load maximum is `1150 * 145.1 / 60 = 2781.08 ticks/s`.
 
@@ -37,16 +37,16 @@ Each Melonbotics Through Bore Encoder supplies quadrature on its 4-pin JST and a
 
 | Encoder Port | Configuration Name | Measurement | Current Software Sign |
 | --- | --- | --- | --- |
-| 0 | `encoderleft` | Left pod azimuth | +1, provisional |
-| 1 | `encoderright` | Right pod azimuth | +1, provisional |
+| 0 | `encoderleft` | Left pod azimuth | +1, pending physical direction check |
+| 1 | `encoderright` | Right pod azimuth | +1, pending physical direction check |
 
-These connections are unchanged. Melonbotics publishes **1024 CPR**. Whether that means decoded counts or quadrature cycles is ambiguous for raw hub counting, so `COUNTS_PER_REVOLUTION = 1024.0` is an explicitly **provisional** interpretation. If it denotes cycles with four-edge decoding, the hub could instead report 4096 counts. Do not assume either interpretation: measure signed raw hub count change over a complete pod revolution before enabling drive. A 90-degree measurement helps check scale and direction but is not a substitute for a full revolution. Old REV/8192 assumptions and previous REV measurements do not calibrate these encoders.
+These connections are unchanged. Melonbotics specifies **1024 CPR quadrature output resolution** on the 4-pin JST. The encoder body also provides absolute analog output on the 3-pin JST. Both outputs measure the same shaft, and the encoder shaft is mechanically **1:1 with pod azimuth**. The code uses `COUNTS_PER_REVOLUTION = 1024.0`; verify the robot's raw hub count convention with a complete pod revolution before finalizing signs and calibration. A 90-degree measurement helps check scale and direction, but is not a substitute for a full revolution.
 
 Rolling the drive wheel without rotating the pod should not change these counts.
 
-In Robot Configuration, assign `encoderleft` and `encoderright` to Expansion Hub **motor channels 0 and 1**. The SDK exposes quadrature encoder inputs through those channels even with no motors attached. These channel handles are read-only in both OpModes: no output, mode, direction, or hardware-reset commands are sent to them.
+In Robot Configuration, assign `encoderleft` and `encoderright` to Expansion Hub **motor channels 0 and 1**. The SDK exposes quadrature encoder inputs through those channels even with no motors attached. These channel handles are read-only for quadrature measurement: no output or hardware-reset command is sent to them. The encoder diagnostic’s explicit Y alignment action commands only the selected drive pod’s motors; it never commands the quadrature channel handles.
 
-Both OpModes read raw controller counts, bypassing motor-channel direction adjustments. The drive checks that the encoders share a controller on ports 0/1 and are on a different controller from the drive motors. Confirm the actual hub assignment in Robot Configuration; names alone do not establish physical wiring.
+Both OpModes read raw controller counts, bypassing motor-channel direction adjustments. Their normal measurement paths are read-only; the documented alignment hotkeys are the only motor-command exception. The drive checks that the encoders share a controller on ports 0/1 and are on a different controller from the drive motors. Confirm the actual hub assignment in Robot Configuration; names alone do not establish physical wiring.
 
 ### Control Hub Analog
 
@@ -61,11 +61,11 @@ Melonbotics specifies a **0..3.2 V output at 3.3 V supply**, 12-bit DAC, maximum
 
 ### Forward References and Startup
 
-Calibration and tracking are shared by both OpModes in [SwervePodEncoder.java](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/SwervePodEncoder.java). `LEFT_FORWARD_DEGREES` and `RIGHT_FORWARD_DEGREES` are independent raw analog references for the **directed wheel-travel axis facing robot-forward**, not merely a wheel plane that could point forward or backward. Both references are intentionally `NaN`, and `CALIBRATION_VERIFIED` is intentionally `false`. The drive commands zero velocity during setup and refuses powered operation until calibration is entered and verified; pressing Start while uncalibrated exits rather than driving.
+Calibration and tracking are shared by the drive and encoder diagnostics through [SwervePodEncoder.java](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/SwervePodEncoder.java). The complete physical discovery procedure is recorded in [HUMAN_TASKS.md](HUMAN_TASKS.md). `LEFT_FORWARD_DEGREES` and `RIGHT_FORWARD_DEGREES` are independent raw analog references for the **directed wheel-travel axis facing robot-forward**, not merely a wheel plane that could point forward or backward. Both references are intentionally `NaN`, and `CALIBRATION_VERIFIED` is intentionally `false`. The drive commands zero velocity during setup and refuses powered operation until calibration is entered and verified; pressing Start while uncalibrated exits rather than driving.
 
-The right module is rotated 180 degrees, **not mirrored**. Its independent forward reference absorbs that mounting rotation: do not add another 180 degrees or negate right feedback just because it is rotated. Determine analog and quadrature signs from actual movement; all four signs currently default to +1. Both pods remain centered at the existing left/right positions, so the kinematics and motor mixing are unchanged. Physically verify the directed positive wheel-drive and steering directions on both modules.
+The right module is rotated 180 degrees, **not mirrored**. Its independent forward reference absorbs that mounting rotation: do not add another 180 degrees or negate right feedback just because it is rotated. Determine analog and quadrature signs from actual movement; all four signs currently default to +1 and still require physical direction checks. Both pods remain centered at the existing left/right positions, so the kinematics and motor mixing are unchanged. Physically verify the directed positive wheel-drive and steering directions on both modules.
 
-Once calibrated, keep the pods stationary at Start. The drive obtains fresh hub snapshots **after INIT**, reads both analog voltages and matching quadrature counts, then seeds each tracker and initial steering target from its measured absolute angle. Movement during INIT is included; even small offsets from calibrated forward are preserved rather than declared zero. There is no need to manually align forward at every Start.
+Once calibrated, the drive obtains fresh hub snapshots **after Start** and automatically steers both pods to their independent analog forward references. It uses bounded differential steering, stops if analog/hub feedback is invalid or alignment times out, then captures fresh quadrature baselines and seeds both trackers at zero pod angle. Keep clear of the robot during this automatic startup alignment.
 
 ```text
 initial angle = wrap((raw analog degrees - pod forward degrees) * analog sign)
@@ -82,11 +82,11 @@ A software forward offset changes reported robot-relative zero; it **cannot move
 
 ### Sources
 
-- [Melonbotics Through Bore Encoder specifications](https://docs.melonbotics.com/through-bore-encoder.md): published 1024 CPR and output connectors.
+- [Melonbotics Through Bore Encoder specifications](https://docs.melonbotics.com/through-bore-encoder.md): 7 mm hex bore compatible with 8 mm REX, 1024 CPR quadrature output, and analog output.
 - [Melonbotics analog output guide](https://docs.melonbotics.com/through-bore-encoder/how-to-use-analog-output.md): 0..3.2 V range, analog specifications, and two-encoder joiner wiring.
 - [REV Control/Expansion Hub port pinouts](https://docs.revrobotics.com/duo-control/control-system-overview/port-pinouts.md): physical connector/channel wiring.
 
-## Mechanical Geometry
+## Mechanical Geometry and Programmed Ratio
 
 | Parameter | Confirmed Value |
 | --- | --- |
@@ -96,11 +96,11 @@ A software forward offset changes reported robot-relative zero; it **cannot move
 | Initial bevel pair, each motor | 1:1 |
 | Spur stage | 16-tooth driving 54-tooth |
 | Wheel bevel stage | 50-tooth driving 19-tooth |
-| Wheel-drive ratio | `(16/54) * (50/19)` |
+| Wheel-drive ratio | `(16/54) * (50/19) = 0.779727` |
 
-Each motor drives a horizontal-to-vertical 1:1 bevel pair followed by the 16:54 stage. The right motor feeds the upper differential part; the left motor feeds the lower part. The upper/lower 54-tooth gears are rigidly attached to their 50-tooth bevel gears, which engage the 19-tooth wheel gear.
+Each motor drives a horizontal-to-vertical 1:1 bevel pair followed by its own 16:54 stage. The right motor feeds the upper differential part; the left motor feeds the lower part. The upper and lower 54-tooth gears are rigidly attached to their respective 50-tooth bevel gears, and both 50-tooth gears engage the common 19-tooth wheel gear. Equal motor motion is the wheel-drive component; motor motion in opposite directions is the pod-steering component. This is the known differential topology used by the motor-mixing code.
 
-The theoretical no-load wheel speed is approximately **2.817 m/s**. This is used to convert chassis rotation requests into normalized pod speeds; it is not a measured loaded operating limit.
+The complete programmed external ratio is `(16/54) * (50/19) = 0.779727` wheel revolutions per motor-output revolution. With the 1150 RPM motor rating and 60 mm wheel, the theoretical no-load wheel speed is approximately **2.817 m/s**. This is used to convert chassis rotation requests into normalized pod speeds; it is not a measured loaded operating limit.
 
 ## Controls and Motor Mixing
 
@@ -140,16 +140,16 @@ Public static tuning fields are available in the class, and changed motor PIDF v
 
 ## Commissioning and Faults
 
-1. Run the existing **Swerve Pod Encoder Test**, enhanced for analog and quadrature readings during both INIT and run. It is read-only: no motor outputs, mode/direction changes, or hardware encoder resets. Move one pod at a time to verify analog and quadrature channel assignment.
-2. Align both directed wheel-travel axes robot-forward. Tap **A** with both analog readings valid to capture both forward voltages/raw degrees and zero displayed quadrature deltas/tracker angles in software. The initial count baseline is established automatically on the first valid hub sample, but forward voltages are captured only with A. No calibration is persisted or automatically transferred to the drive; this is intentionally a report-back workflow.
-3. Record both captured forward voltages/raw degrees and wrap margins. The test shows current raw voltage/angle, raw counts, counts from zero, provisional quadrature degrees, and CW/CCW distance to the DAC wrap using provisional signs. After A it also shows captured minimum wrap margin, analog angle from captured forward, quadrature-tracked angle, and their wrapped difference.
-4. From the capture position, manually rotate each pod 90 degrees clockwise viewed from above and record signed raw count delta and whether analog angle increases or decreases, accounting for wrap. Continue to one complete revolution from the capture position and record the signed count delta again without recapturing A. Use raw counts, not provisional derived degrees, to establish counts/revolution. Confirm wheel rolling alone does not change pod counts.
-5. **Send back both forward voltages/raw degrees, each pod's signed count deltas at CW 90 degrees and a full revolution, analog direction, and verified channel assignment.** Leave powered drive blocked until the measurements are reviewed and forward references, signs, and counts/revolution are set and verified in the shared constants. Restarting the diagnostic loses its captures by design.
-6. For subsequent powered commissioning, securely raise the wheels, reduce drive/steering limits, and keep clear of moving pods. Physically verify each module's directed positive wheel-forward and clockwise steering response; the rotated right module's reference is not a substitute for this check. INIT commands zero velocity rather than disabling motors for free manual alignment. Keep pods stationary at Start for the analog/quadrature seed.
-7. Test forward/reverse, strafing, clockwise/counterclockwise turning, combined motion, and turn-stick release at low speed. Test pod-angle wraparound, shortest-path reversals near 90 degrees, and Stop behavior. Tune velocity control, steering PD, slew, and driver feel before increasing limits.
+1. Run the **Pod Analog Encoder Test**. LB selects the left pod, RB selects the right pod, A steers the selected pod toward its configured forward analog reference, and B aborts. If a reference has not yet been entered, the test targets analog 0 degrees. Keep the robot raised and clear during alignment.
+2. Run the **Motor Encoder Count Test** to view all four motor encoder counts while manually rotating a pod. It applies no motor power. The motor test reports raw counts, gearbox-output revolutions using 145.1 pulses/revolution, encoder-shaft revolutions using the 5.2:1 gearbox, and left/right differential count deltas. Compare the deltas with the known 1:1 bevel → 16:54 → 50:19 differential topology.
+3. Run the **Swerve Pod Encoder Test**. LB/RB select a pod, A zeroes the selected quadrature display in software, X starts/finishes a manual 360-degree measurement, Y steers the selected pod to its analog forward reference, and B aborts alignment.
+4. Verify a complete revolution is approximately 1024 counts with the correct clockwise sign. Confirm wheel rolling without pod rotation does not change the pod encoder reading.
+5. Send back both forward analog values/raw degrees, each pod's signed full-revolution count delta, analog increase/decrease direction, and verified channel assignment before calibration constants are finalized.
+6. After the references and signs are entered, run the main drive with wheels raised and reduced limits. The drive automatically steers both pods to their references after Start, captures quadrature baselines at zero pod angle, and refuses to continue if alignment times out or feedback is invalid.
+8. Test forward/reverse, strafing, clockwise/counterclockwise turning, combined motion, and turn-stick release at low speed. Test pod-angle wraparound, shortest-path reversals near 90 degrees, and Stop behavior. Tune velocity control, steering PD, slew, and driver feel before increasing limits.
 
 The drive reads one validated bulk snapshot per configured hub per loop and updates telemetry at 10 Hz. A detected invalid snapshot or excessive loop delay stops driving and requires a restart. Shutdown attempts zero velocity on every drive motor, even if another stop command throws, and restores prior hub caching modes. The encoder diagnostic also temporarily uses manual caching and restores prior modes at Stop.
 
 Software checks cannot interrupt a blocked SDK call or guarantee delivery of a failed stop command. A disconnected or frozen quadrature encoder can still return valid hub data and is not reliably detected. A disconnected analog input can read a valid 0 V and seed an incorrect angle; there is no reliable disconnect protection, and analog is not used for runtime correction. Because every configured hub is checked, an unrelated hub fault can also stop the drive or suppress a diagnostic reading.
 
-The debug APK build and 15 shared-tracker unit tests passed with `./gradlew.bat :TeamCode:testDebugUnitTest :TeamCode:assembleDebug`. These tests cover encoder math, not real hub wiring or powered OpMode behavior. Physical calibration, PIDF/PD tuning, loaded speed, stopping behavior, and actual Control Hub loop timing remain to be verified on the robot. No Pinpoint commissioning is needed for this setup.
+The debug APK build and shared-tracker unit tests passed with `./gradlew.bat :TeamCode:testDebugUnitTest :TeamCode:assembleDebug`. These tests cover encoder math, not real hub wiring or powered OpMode behavior. Complete [HUMAN_TASKS.md](HUMAN_TASKS.md) for physical calibration, powered commissioning, tuning, and final acceptance. Physical calibration, PIDF/PD tuning, loaded speed, stopping behavior, and actual Control Hub loop timing remain to be verified on the robot. No Pinpoint commissioning is needed for this setup.

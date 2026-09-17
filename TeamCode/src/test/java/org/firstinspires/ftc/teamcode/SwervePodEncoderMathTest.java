@@ -230,9 +230,55 @@ public class SwervePodEncoderMathTest {
     }
 
     @Test
+    public void analogErrorUsesShortestSignedPathAndAnalogSign() {
+        assertEquals(20.0,
+                SwervePodEncoder.analogErrorDegrees(voltsForDegrees(350.0), 10.0, 1), EPSILON);
+        assertEquals(-20.0,
+                SwervePodEncoder.analogErrorDegrees(voltsForDegrees(10.0), 350.0, 1), EPSILON);
+        assertEquals(-20.0,
+                SwervePodEncoder.analogErrorDegrees(voltsForDegrees(350.0), 10.0, -1), EPSILON);
+    }
+
+    @Test
+    public void degreeWrappingMatchesSteeringBoundaries() {
+        assertEquals(180.0, SwervePodEncoder.wrapDegrees(-180.0), EPSILON);
+        assertEquals(-170.0, SwervePodEncoder.wrapDegrees(190.0), EPSILON);
+        assertEquals(170.0, SwervePodEncoder.wrapDegrees(-190.0), EPSILON);
+    }
+
+    @Test
+    public void alignmentControllerCommandsShortestPathAndStopsAtTarget() {
+        PodAlignmentController controller = new PodAlignmentController(10.0, 1);
+        controller.start();
+        controller.step(voltsForDegrees(200.0), 0.01);
+        assertTrue(controller.isActive());
+        assertEquals(PodAlignmentController.MAX_COMMAND, controller.getCommand(), EPSILON);
+        controller.step(voltsForDegrees(10.5), 0.01);
+        assertTrue(controller.isComplete());
+        assertEquals(0.0, controller.getCommand(), EPSILON);
+    }
+
+    @Test
+    public void alignmentControllerFailsOnInvalidFeedbackOrTimeout() {
+        PodAlignmentController invalid = new PodAlignmentController(10.0, 1);
+        invalid.start();
+        invalid.step(-0.1, 0.01);
+        assertTrue(invalid.isFailed());
+        assertEquals(0.0, invalid.getCommand(), EPSILON);
+
+        PodAlignmentController timeout = new PodAlignmentController(10.0, 1);
+        timeout.start();
+        timeout.step(voltsForDegrees(200.0), PodAlignmentController.TIMEOUT_SECONDS);
+        assertTrue(timeout.isFailed());
+        assertEquals(0.0, timeout.getCommand(), EPSILON);
+    }
+
+    @Test
     public void calibrationIsNotReadyBeforeMeasurementsAreVerified() {
         assertFalse(SwervePodEncoder.CALIBRATION_VERIFIED);
         assertFalse(SwervePodEncoder.calibrationReady());
+        assertEquals(0.0, SwervePodEncoder.forwardTargetDegrees(true), EPSILON);
+        assertEquals(0.0, SwervePodEncoder.forwardTargetDegrees(false), EPSILON);
     }
 
     private static double voltsForDegrees(double degrees) {

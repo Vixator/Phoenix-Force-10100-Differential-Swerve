@@ -6,8 +6,8 @@ public final class SwervePodEncoder {
     public static final String RIGHT_ANALOG_NAME = "absenc2";
     public static final double FULL_SCALE_VOLTS = 3.2;
 
-    // Provisional interpretation of Melonbotics' "1024 CPR". Measure raw hub counts
-    // over one complete pod revolution before enabling drive (CPR can mean cycles or counts).
+    // Melonbotics specifies 1024 CPR quadrature output. Verify the raw hub count
+    // convention over one complete pod revolution during physical commissioning.
     public static final double COUNTS_PER_REVOLUTION = 1024.0;
     public static final int LEFT_QUADRATURE_SIGN = 1;
     public static final int RIGHT_QUADRATURE_SIGN = 1;
@@ -38,8 +38,14 @@ public final class SwervePodEncoder {
                 && validForward(RIGHT_FORWARD_DEGREES);
     }
 
-    private static boolean validForward(double degrees) {
+    static boolean validForward(double degrees) {
         return Double.isFinite(degrees) && degrees >= 0.0 && degrees < 360.0;
+    }
+
+    /** Returns the configured forward reference, or electrical zero for commissioning tools. */
+    public static double forwardTargetDegrees(boolean leftPod) {
+        double configured = leftPod ? LEFT_FORWARD_DEGREES : RIGHT_FORWARD_DEGREES;
+        return validForward(configured) ? configured : 0.0;
     }
 
     public static boolean validVoltage(double volts) {
@@ -56,6 +62,14 @@ public final class SwervePodEncoder {
             throw new IllegalArgumentException("Missing/invalid pod forward calibration or analog sign");
         }
         return wrapRadians(Math.toRadians((rawDegrees(volts) - forwardDegrees) * analogSign));
+    }
+
+    /** Signed shortest analog error in degrees, positive in the programmed steering direction. */
+    public static double analogErrorDegrees(double volts, double forwardDegrees, int analogSign) {
+        if (!validForward(forwardDegrees) || (analogSign != 1 && analogSign != -1)) {
+            throw new IllegalArgumentException("Missing/invalid pod forward calibration or analog sign");
+        }
+        return wrapDegrees((forwardDegrees - rawDegrees(volts)) * analogSign);
     }
 
     public void seed(double absoluteRadians, int count) {
@@ -77,6 +91,13 @@ public final class SwervePodEncoder {
     public int getCount() { return lastCount; }
     public double getAngleRadians() { return angleRadians; }
     public double getRateRadiansPerSecond() { return rateRadiansPerSecond; }
+
+    public static double wrapDegrees(double angle) {
+        angle %= 360.0;
+        if (angle <= -180.0) angle += 360.0;
+        if (angle > 180.0) angle -= 360.0;
+        return angle;
+    }
 
     public static double wrapRadians(double angle) {
         angle %= 2.0 * Math.PI;
