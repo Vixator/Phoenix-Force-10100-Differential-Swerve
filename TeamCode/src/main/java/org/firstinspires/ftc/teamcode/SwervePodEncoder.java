@@ -2,8 +2,8 @@ package org.firstinspires.ftc.teamcode;
 
 /** Shared calibration and absolute-seeded, quadrature-only azimuth tracking. */
 public final class SwervePodEncoder {
-    public static final String LEFT_ANALOG_NAME = "absenc";
-    public static final String RIGHT_ANALOG_NAME = "absenc2";
+    public static final String LEFT_ANALOG_NAME = "absencleft";
+    public static final String RIGHT_ANALOG_NAME = "absencright";
     public static final double FULL_SCALE_VOLTS = 3.2;
 
     // Melonbotics specifies 1024 CPR quadrature output. Verify the raw hub count

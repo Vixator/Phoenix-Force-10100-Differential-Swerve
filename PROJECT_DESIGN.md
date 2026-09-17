@@ -60,7 +60,7 @@ The code uses the 145.1 gearbox-output value for velocity control because motor 
 Each Melonbotics Through Bore Encoder contains both sensing outputs and is mechanically 1:1 with pod azimuth:
 
 - Quadrature: Expansion Hub motor channels 0 and 1, named `encoderleft` and `encoderright`
-- Analog: Control Hub analog channels 0 and 1, named `absenc` and `absenc2`
+- Analog: Control Hub analog channels 0 and 1, named `absencleft` and `absencright`
 - Quadrature resolution: 1024 CPR
 - Analog range: 0–3.2 V
 

@@ -61,10 +61,10 @@ Do not set `CALIBRATION_VERIFIED = true` until the required tasks below are comp
 ### A3. Pod analog wiring
 
 - [ ] Confirm one joiner cable is connected to the Control Hub physical analog connector labeled `0-1`.
-- [ ] Confirm the left analog signal is channel 0 and named `absenc`.
-- [ ] Confirm the right analog signal is channel 1 and named `absenc2`.
-- [ ] Move only the left pod and confirm only `absenc` changes.
-- [ ] Move only the right pod and confirm only `absenc2` changes.
+- [ ] Confirm the left analog signal is channel 0 and named `absencleft`.
+- [ ] Confirm the right analog signal is channel 1 and named `absencright`.
+- [ ] Move only the left pod and confirm only `absencleft` changes.
+- [ ] Move only the right pod and confirm only `absencright` changes.
 - [ ] Confirm the two signals are not electrically tied together.
 - [ ] Record connection information shown by the diagnostic tools:
 

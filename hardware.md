@@ -52,8 +52,8 @@ Both OpModes read raw controller counts, bypassing motor-channel direction adjus
 
 | Analog Channel | Configuration Name | Measurement |
 | --- | --- | --- |
-| 0 | `absenc` | Left pod absolute azimuth |
-| 1 | `absenc2` | Right pod absolute azimuth |
+| 0 | `absencleft` | Left pod absolute azimuth |
+| 1 | `absencright` | Right pod absolute azimuth |
 
 Use **ONE joiner cable into the Control Hub's physical analog connector labeled 0-1**. The joiner routes two independent encoder signals to channels 0 and 1; it does not merge them into a single input. Configure **two AnalogInput hardware names** as above. Confirm the actual assignment by moving one pod at a time and checking connection telemetry; names alone do not prove wiring. Follow the manufacturer's joiner wiring and REV port pinout rather than tying the two signal wires together.
 

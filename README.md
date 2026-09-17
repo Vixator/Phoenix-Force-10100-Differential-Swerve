@@ -28,8 +28,8 @@ Configure these names on the corresponding Expansion Hub **motor channels** so t
 
 | Control Hub Analog Channel | Configuration Name | Measurement |
 | :--- | :--- | :--- |
-| `0` | `absenc` | Left pod absolute azimuth |
-| `1` | `absenc2` | Right pod absolute azimuth |
+| `0` | `absencleft` | Left pod absolute azimuth |
+| `1` | `absencright` | Right pod absolute azimuth |
 
 Both analog signals use **ONE joiner cable into the physical analog connector labeled 0-1**. They remain independent inputs and require **two hardware names**, not one shared name. Move one pod at a time to verify channel assignment. The encoder output is **0..3.2 V** at 3.3 V supply; raw angle is `volts / 3.2 * 360`, not scaled by the hub's maximum input voltage. See [hardware.md](hardware.md) for manufacturer sources.
 
@@ -55,7 +55,7 @@ Detected hub-read faults or excessive loop delays stop driving and require an Op
 
 Select [Swerve Pod Encoder Test](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/SwervePodEncoderTest.java). Its normal measurement path is read-only, and its explicit Y alignment action commands only the selected pod’s drive motors. It works during INIT or after Start.
 
-1. Run [Pod Analog Encoder Test](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/PodAnalogEncoderTest.java). LB selects the left pod, RB selects the right pod, A steers the selected pod toward its configured forward analog reference, and B aborts. If a reference has not yet been entered, the test targets analog 0 degrees. Confirm `absenc` is left/channel 0 and `absenc2` is right/channel 1.
+1. Run [Pod Analog Encoder Test](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/PodAnalogEncoderTest.java). LB selects the left pod, RB selects the right pod, A steers the selected pod toward its configured forward analog reference, and B aborts. If a reference has not yet been entered, the test targets analog 0 degrees. Confirm `absencleft` is left/channel 0 and `absencright` is right/channel 1.
 2. Run [Motor Encoder Count Test](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/MotorEncoderCountTest.java) with no motor power to record all four motor encoder counts while manually rotating a pod. It is read-only with respect to motor power. The current differential topology is known: each motor drives its own 16:54 path, the 54-tooth gear is fixed to a 50-tooth gear, and the two 50-tooth gears engage the common 19-tooth wheel gear. Equal motor motion is the wheel-drive component; opposite motor motion is the pod-steering component. Use the displayed count deltas to confirm the physical assembly and signs.
 3. Run [Swerve Pod Encoder Test](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/SwervePodEncoderTest.java). LB/RB select the pod, A zeroes the selected quadrature display in software, X starts/finishes a manual 360-degree measurement, Y steers the selected pod to its analog forward reference, and B aborts alignment.
 4. Check the corresponding quadrature channel and verify a complete revolution is approximately 1024 counts with the correct clockwise sign.
