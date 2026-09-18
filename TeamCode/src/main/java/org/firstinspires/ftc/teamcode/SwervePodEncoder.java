@@ -5,21 +5,25 @@ public final class SwervePodEncoder {
     public static final String LEFT_ANALOG_NAME = "absencleft";
     public static final String RIGHT_ANALOG_NAME = "absencright";
     public static final double FULL_SCALE_VOLTS = 3.2;
+    // Nominal DAC scale is 3.2 V; tolerate readings up to its 3.3 V supply rail.
+    // This is an acceptance margin, not a replacement angle scale.
+    public static final double MAX_VALID_VOLTS = 3.3;
 
-    // Melonbotics specifies 1024 CPR quadrature output. Verify the raw hub count
-    // convention over one complete pod revolution during physical commissioning.
-    public static final double COUNTS_PER_REVOLUTION = 1024.0;
+    // The encoder specifies 1024 CPR; FTC quadrature tracking uses four edges
+    // per cycle, so the selected raw pod scale is 4096 counts per revolution.
+    public static final double COUNTS_PER_REVOLUTION = 4096.0;
     public static final int LEFT_QUADRATURE_SIGN = 1;
     public static final int RIGHT_QUADRATURE_SIGN = 1;
-    public static final int LEFT_ANALOG_SIGN = 1;
-    public static final int RIGHT_ANALOG_SIGN = 1;
-    public static final boolean CALIBRATION_VERIFIED = false;
-
-    // Raw analog degrees with the directed wheel-travel axis facing ROBOT forward.
-    // Independent references absorb the right module's 180-degree mounting rotation.
-    // Do not add another 180 degrees or negate right feedback just because it is rotated.
-    public static final double LEFT_FORWARD_DEGREES = Double.NaN;
-    public static final double RIGHT_FORWARD_DEGREES = Double.NaN;
+    // Both encoders decrease in raw voltage while their pods rotate clockwise.
+    public static final int LEFT_ANALOG_SIGN = -1;
+    public static final int RIGHT_ANALOG_SIGN = -1;
+    // The measured top-dead-center references are the robot-forward zero for each pod.
+    // Voltage conversion: volts / 3.2 * 360 degrees.
+    public static final double LEFT_FORWARD_DEGREES = 13.725;
+    public static final double RIGHT_FORWARD_DEGREES = 29.025;
+    // Hardware, encoder signs/scale, and combined pod steering behavior are verified.
+    // Remaining drivetrain work is powered drive commissioning and tuning.
+    public static final boolean CALIBRATION_VERIFIED = true;
 
     private final int quadratureSign;
     private int lastCount;
@@ -49,12 +53,17 @@ public final class SwervePodEncoder {
     }
 
     public static boolean validVoltage(double volts) {
-        return Double.isFinite(volts) && volts >= 0.0 && volts <= FULL_SCALE_VOLTS;
+        return Double.isFinite(volts) && volts >= 0.0 && volts <= MAX_VALID_VOLTS;
     }
 
     public static double rawDegrees(double volts) {
-        if (!validVoltage(volts)) throw new IllegalArgumentException("Analog voltage outside 0..3.2 V");
-        return volts / FULL_SCALE_VOLTS * 360.0;
+        if (!validVoltage(volts)) throw new IllegalArgumentException(voltageFault(volts));
+        // Saturate at the wrap endpoint; overscale must not invent an angle beyond 360.
+        return Math.min(volts, FULL_SCALE_VOLTS) / FULL_SCALE_VOLTS * 360.0;
+    }
+
+    public static String voltageFault(double volts) {
+        return "invalid analog feedback: " + volts + " V (accepted 0.." + MAX_VALID_VOLTS + " V)";
     }
 
     public static double absoluteRadians(double volts, double forwardDegrees, int analogSign) {

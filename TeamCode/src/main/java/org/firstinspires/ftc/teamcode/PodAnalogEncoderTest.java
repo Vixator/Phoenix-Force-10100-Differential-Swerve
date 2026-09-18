@@ -15,7 +15,7 @@ import com.qualcomm.robotcore.hardware.DcMotorSimple;
  */
 @TeleOp(name = "Pod Analog Encoder Test", group = "Differential Swerve")
 public class PodAnalogEncoderTest extends OpMode {
-    private static final double MOTOR_TICKS_PER_SECOND = 2781.0833;
+    private static final double MOTOR_TICKS_PER_SECOND = HardwareConstants.MAX_MOTOR_TICKS_PER_SECOND;
 
     private AnalogInput leftAbsolute;
     private AnalogInput rightAbsolute;
@@ -35,12 +35,12 @@ public class PodAnalogEncoderTest extends OpMode {
 
     @Override
     public void init() {
-        leftAbsolute = hardwareMap.get(AnalogInput.class, SwervePodEncoder.LEFT_ANALOG_NAME);
-        rightAbsolute = hardwareMap.get(AnalogInput.class, SwervePodEncoder.RIGHT_ANALOG_NAME);
-        leftMotorLeft = getMotor("motor0");
-        leftMotorRight = getMotor("motor1");
-        rightMotorLeft = getMotor("motor2");
-        rightMotorRight = getMotor("motor3");
+        leftAbsolute = hardwareMap.get(AnalogInput.class, HardwareConstants.ANALOG_LEFT);
+        rightAbsolute = hardwareMap.get(AnalogInput.class, HardwareConstants.ANALOG_RIGHT);
+        leftMotorLeft = getMotor(HardwareConstants.MOTOR_LEFT_POD_LEFT);
+        leftMotorRight = getMotor(HardwareConstants.MOTOR_LEFT_POD_RIGHT);
+        rightMotorLeft = getMotor(HardwareConstants.MOTOR_RIGHT_POD_LEFT);
+        rightMotorRight = getMotor(HardwareConstants.MOTOR_RIGHT_POD_RIGHT);
         telemetry.setMsTransmissionInterval(100);
     }
 
@@ -126,7 +126,7 @@ public class PodAnalogEncoderTest extends OpMode {
             telemetry.addData(label + " distance to wrap (deg)", "CW %.1f / CCW %.1f",
                     360.0 - raw, raw);
         } else {
-            telemetry.addData(label + " raw position", "INVALID: expected 0..3.2 V");
+            telemetry.addData(label + " raw position", SwervePodEncoder.voltageFault(volts));
         }
     }
 

@@ -5,6 +5,7 @@ public final class PodAlignmentController {
     public static final double KP = 0.005;
     public static final double MAX_COMMAND = 0.20;
     public static final double TOLERANCE_DEGREES = 2.0;
+    public static final double SETTLE_SECONDS = 0.10;
     public static final double TIMEOUT_SECONDS = 5.0;
 
     private final double targetDegrees;
@@ -13,6 +14,8 @@ public final class PodAlignmentController {
     private boolean complete;
     private boolean failed;
     private double elapsedSeconds;
+    private double settledSeconds;
+    private boolean wasInTolerance;
     private double lastErrorDegrees;
     private double command;
     private String status = "idle";
@@ -33,6 +36,8 @@ public final class PodAlignmentController {
         complete = false;
         failed = false;
         elapsedSeconds = 0.0;
+        settledSeconds = 0.0;
+        wasInTolerance = false;
         lastErrorDegrees = 0.0;
         command = 0.0;
         status = "active";
@@ -40,6 +45,7 @@ public final class PodAlignmentController {
 
     public void abort(String reason) {
         active = false;
+        complete = false;
         failed = true;
         command = 0.0;
         status = reason;
@@ -47,21 +53,35 @@ public final class PodAlignmentController {
 
     public void step(double volts, double seconds) {
         if (!active) return;
-        if (!SwervePodEncoder.validVoltage(volts) || !Double.isFinite(seconds) || seconds < 0.0) {
-            abort("invalid feedback");
+        if (!SwervePodEncoder.validVoltage(volts)) {
+            abort(SwervePodEncoder.voltageFault(volts));
+            return;
+        }
+        if (!Double.isFinite(seconds) || seconds < 0.0) {
+            abort("invalid sample time");
             return;
         }
         elapsedSeconds += seconds;
         lastErrorDegrees = SwervePodEncoder.analogErrorDegrees(volts, targetDegrees, analogSign);
-        if (Math.abs(lastErrorDegrees) <= TOLERANCE_DEGREES) {
+        boolean inTolerance = Math.abs(lastErrorDegrees) <= TOLERANCE_DEGREES;
+        settledSeconds = inTolerance && wasInTolerance ? settledSeconds + seconds : 0.0;
+        wasInTolerance = inTolerance;
+        if (elapsedSeconds >= TIMEOUT_SECONDS) {
+            abort("timeout");
+        } else if (settledSeconds >= SETTLE_SECONDS) {
             active = false;
             complete = true;
             command = 0.0;
             status = "target reached";
-        } else if (elapsedSeconds >= TIMEOUT_SECONDS) {
-            abort("timeout");
+        } else if (inTolerance) {
+            command = 0.0;
+            status = "settling";
         } else {
-            command = clamp(lastErrorDegrees * KP, -MAX_COMMAND, MAX_COMMAND);
+            status = "active";
+            // The confirmed motor wiring makes positive steering command rotate CCW,
+            // while positive analog error requires a CW correction.
+            command = clamp(DifferentialSwervePodController.motorSteeringForClockwise(
+                    lastErrorDegrees * KP), -MAX_COMMAND, MAX_COMMAND);
         }
     }
 

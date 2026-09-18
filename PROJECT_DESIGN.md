@@ -10,10 +10,10 @@ This project controls and commissions a two-pod differential-swerve FTC drivetra
 2. The drive shall support robot-centric translation and chassis rotation.
 3. Pod azimuth shall use the dedicated Melonbotics encoder quadrature outputs for runtime tracking.
 4. Absolute analog encoder outputs shall provide the startup azimuth reference.
-5. At startup, the main drive shall steer both pods to their independent analog forward references before accepting driver motion.
+5. During INIT, the main drive shall steer both pods to their independent analog forward references; driver motion starts only after both alignment and Start.
 6. The drive shall remain disabled until encoder calibration has been physically measured and verified.
 7. Diagnostics shall be read-only whenever they are intended for wiring or calibration work; motor-assisted alignment actions must be explicit, bounded, and abortable.
-8. Hardware faults and invalid feedback shall fail safe by stopping drive commands and requiring an OpMode restart.
+8. Invalid hub feedback shall stop motor commands before bounded retries. Persistent feedback faults shall latch stopped until OpMode restart; recovered runtime feedback requires neutral sticks and consistent pod angles before resuming.
 9. **Each independent robot subsystem or diagnostic function shall be implemented in its own OpMode file.** Do not combine unrelated subsystem tests into one large OpMode. Shared calculations and constants belong in reusable classes; hardware ownership, lifecycle, telemetry, and commands belong in the OpMode for that subsystem.
 
 ## Architecture
@@ -23,13 +23,17 @@ This project controls and commissions a two-pod differential-swerve FTC drivetra
 - `DifferentialSwerveTeleOp` owns the powered drivetrain, gamepad interpretation, hub reads, motor commands, pod tracking, and drive telemetry.
 - `SwervePodEncoderTest` owns the combined analog/quadrature encoder commissioning workflow; its normal measurement path is read-only and its Y action is bounded selected-pod alignment.
 - `PodAnalogEncoderTest` owns analog display and bounded selected-pod alignment to the forward reference.
-- `MotorEncoderCountTest` owns the no-power motor encoder count measurement workflow.
+- `MotorEncoderDriveTest` owns the bounded individual-motor direction and module-response workflow.
 
 New robot subsystems should follow the same separation. Examples include an intake test, lift test, vision test, or autonomous subsystem test: each should have a separate appropriately named OpMode rather than being added to the drivetrain OpMode.
 
 ### Shared class
 
 `SwervePodEncoder` contains hardware-independent encoder math and calibration constants shared by the drive and encoder diagnostics. `PodAlignmentController` contains the shared bounded analog-feedback alignment state machine. Neither class acquires hardware, sends motor commands, or owns an OpMode lifecycle.
+
+`DifferentialSwerveKinematics` converts robot-relative translation and clockwise-positive chassis rotation to pod vectors. `DifferentialSwervePodController` owns shortest-path optimization, PD steering, slew state, alignment scaling, and normalized motor mixing. Its clockwise-to-motor-steering conversion is shared with startup alignment and the individual pod diagnostic.
+
+`SwerveDriverInput` owns radial translation deadband and cubic rotation shaping. The main OpMode handles hardware initialization, bounded alignment, analog-to-quadrature handoff, and the read/calculate/command loop. Encoder angle/rate state is stored only in the trackers. Tuning is compile-time; motor PIDF is configured once in INIT.
 
 This separation keeps the math and alignment safety rules unit-testable and prevents the drive and diagnostics from developing different timeout, clamp, or wrap behavior.
 
@@ -61,7 +65,7 @@ Each Melonbotics Through Bore Encoder contains both sensing outputs and is mecha
 
 - Quadrature: Expansion Hub motor channels 0 and 1, named `encoderleft` and `encoderright`
 - Analog: Control Hub analog channels 0 and 1, named `absencleft` and `absencright`
-- Quadrature resolution: 1024 CPR
+- Encoder specification: 1024 CPR; software pod tracking scale: 4096 raw counts/revolution
 - Analog range: 0–3.2 V
 
 Raw controller counts are read directly so motor-channel direction settings cannot silently change encoder polarity.
@@ -95,47 +99,56 @@ right motor velocity = wheel-drive component - steering component
 
 Equal motor velocities produce wheel drive. Opposite motor velocities produce pod steering. The right pod is physically rotated 180 degrees but is not treated as mirrored in software; its independent analog forward reference accounts for the mounting orientation.
 
-The controller optimizes the requested pod vector to a maximum 90-degree steering error. If the desired vector is farther away, it reverses wheel direction and uses the equivalent shorter steering path. This reduces unnecessary pod rotation and is why individual motor signs cannot be assumed fixed for every driver command.
+The confirmed motor response is **counterclockwise** for positive steering in this mix. Encoder angles, errors, and measured rates are **clockwise-positive**, so `steering component = -(Kp * error - Kd * measuredRate)`. Both PD terms must be converted together. Applying this polarity only during analog alignment leaves the runtime loop in positive feedback. Chassis rotation remains clockwise-positive: right-stick right requests left-wheel forward/right-wheel backward, independently of the pod-steering polarity.
+
+The controller reverses wheel direction to use the equivalent shorter steering path. Its first choice uses the 90° boundary; subsequent choices use a 3° hysteresis band (switch to reverse above 93°, back below 87°). This avoids chatter near perpendicular and permits up to 93° retained steering error. Wheel drive is suppressed whenever absolute error is at least 90°. Individual motor signs cannot be assumed fixed for every driver command.
 
 ## Encoder Calibration and Tracking
 
-At startup, the drive:
+During INIT, the drive:
 
 1. Reads both analog voltages.
 2. Converts them to raw degrees with `volts / 3.2 * 360`.
 3. Computes each signed shortest error to its independently measured forward reference.
-4. Uses the known differential motor mixing to steer both pods toward those references with bounded velocity and a timeout.
-5. Stops and refuses to drive if either pod cannot reach its reference or feedback becomes invalid.
-6. Seeds both quadrature trackers at zero pod angle with fresh raw counts after alignment.
+4. Uses proportional velocity capped at 0.20 command, requiring 100 ms continuously within the 2° target window before the 5-second timeout, with correction polarity matched to the measured directions.
+5. Stops both pods immediately if either fails. Completed pods are checked for drift while their partner finishes. The same 250 ms delay limit used in driving also applies during alignment.
+6. Reports READY and waits at zero velocity for Start. The bounded alignment loop uses Stop as its cancellation condition, so it runs during INIT and finishes if Start is pressed early.
+7. At Start, takes a fresh validated snapshot, verifies both pods are still within tolerance, and seeds quadrature with the measured residual analog angles and raw counts. The first runtime interval starts at that snapshot, not before the INIT wait. A pod moved out of tolerance requires reinitialization.
+
+Analog validation accepts finite 0..3.3 V readings, allowing a margin above the nominal 3.2 V DAC endpoint. Conversion clamps that upper margin to 360° while retaining the 3.2 V scale and measured forward references. Invalid readings report the voltage; they are not silently replaced with zero.
 
 After startup, runtime angle tracking uses quadrature only:
 
 ```text
-delta angle = delta counts * quadrature sign * 2π / 1024
+delta angle = delta counts * quadrature sign * 2π / 4096
 ```
 
 Analog is not repeatedly used for correction because the analog output wraps at the voltage boundary and can introduce discontinuities during normal steering. Quadrature count differences are calculated as integers before conversion so signed rollover is handled correctly.
 
-Forward references and signs are deliberately not guessed. Until `CALIBRATION_VERIFIED` is true and both forward references are finite, powered drive exits without commanding motion.
+The measured top-dead-center forward references are stored independently: left 0.122 V / 13.725° and right 0.258 V / 29.025°. Both analog voltages decrease during clockwise rotation, so both analog signs are `-1`. Both quadrature signs are confirmed as `+1` because clockwise rotation increased both raw counts. Wheel-drive direction and loaded behavior still require powered commissioning. `CALIBRATION_VERIFIED` is true after physical encoder and combined-steering verification; powered drive now proceeds to bounded startup alignment. Powered commissioning and tuning remain separate human tasks.
 
 ## Control Decisions
 
 - **Robot-centric control:** avoids requiring an IMU or field heading reference.
 - **Left stick translation:** direction selects the requested robot-relative pod vector; radial deadband prevents small joystick noise.
 - **Right stick X rotation:** requests clockwise-positive chassis rotation about the pod midpoint; cubic shaping provides finer low-input control.
+- **Full-speed pure rotation:** full stick maps to `2 * maxWheelSpeed / trackWidth`, so aligned pods request equal and opposite full wheel speeds using all four motors. Combined motion retains vector normalization and steering headroom. This calculated angular rate is a command scale, not a measured chassis speed.
 - **No heading hold:** releasing the turn stick requests zero chassis rotation rather than an automatic return or heading correction.
 - **Steering priority:** steering commands retain authority when drive and steering compete for the motor-speed limit. Remaining headroom is allocated to wheel drive.
 - **Cosine-squared alignment scaling:** wheel drive is reduced while a pod is misaligned with its requested vector.
 - **Steering slew limiting:** limits abrupt changes in the steering command.
 - **Measured-rate damping:** derivative steering feedback uses measured pod angular rate, avoiding target-step derivative spikes.
+- **Bounded runtime steering:** preliminary defaults are Kp 0.5, Kd 0.01, steering limit 0.20, and slew rate 2.0/s. The runtime cap matches startup alignment; actual loaded tuning requires robot verification.
 
 ## Safety and Fault Handling
 
-- Diagnostics do not apply motor power or reset hardware encoder counts.
-- The drive commands zero velocity during initialization.
+- Encoder measurement diagnostics do not reset hardware encoder counts; the individual motor diagnostic intentionally applies bounded power to one selected motor at a time.
+- The drive starts at zero velocity, aligns the pods during INIT, then waits at zero velocity for Start.
 - The drive refuses to start without verified calibration.
 - Invalid analog values, invalid hub bulk reads, or excessive loop delays stop the drive.
-- A feedback fault requires an OpMode restart rather than automatic recovery.
+- A failed bulk read commands zero velocity before retrying the entire hub set. `HubSnapshotReader` allows three attempts within 150 ms, with 10 ms pauses. No fake or mixed-attempt data reaches the controllers. The existing 250 ms loop limit still includes recovery time.
+- Recovered runtime reads reset steering output state and require neutral sticks before resuming. Analog/quadrature disagreement above 10° latches a feedback fault, helping catch count resets after hub recovery; this check does not reseed or correct the tracker and cannot detect every reset.
+- Persistent feedback faults stay in a stopped telemetry state until Stop/reinitialization. Hub identity and failure details are logged; cleanup attempts every motor stop and cache restoration even if another fails.
 - Shutdown attempts to stop every drive motor, even if one stop operation throws.
 - Hardware names and ports are checked at runtime, including the requirement that pod quadrature inputs are on Expansion Hub channels 0 and 1 and are on a different hub from the drive motors.
 - Software validity checks cannot guarantee that a disconnected analog sensor or frozen quadrature sensor is detected; physical commissioning remains required.
@@ -145,7 +158,7 @@ Forward references and signs are deliberately not guessed. Until `CALIBRATION_VE
 The diagnostics are intentionally split by purpose:
 
 - Use `PodAnalogEncoderTest` to inspect analog voltage and absolute raw position; LB/RB select a pod, A performs bounded motor-assisted alignment to its forward reference, and B aborts.
-- Use `MotorEncoderCountTest` to inspect motor encoder counts while rotating pods manually with no motor power. It reports gearbox-output and encoder-shaft conversions plus the motor-pair differential deltas for comparison with the known differential gear setup. Pod azimuth remains measured by the dedicated 1:1 Melonbotics encoder rather than inferred from motor counts.
+- Use `MotorEncoderDriveTest` to power one selected motor at a time at a bounded 25% maximum. D-pad selection and telemetry make individual motor direction and module response visible during physical commissioning.
 - Use `SwervePodEncoderTest` to zero a selected quadrature display in software, measure a manual full revolution, compare analog against quadrature, or perform bounded alignment to the selected pod’s analog forward reference.
 
 Calibration captures are session-only. They are reported back and then entered into the shared source constants after review rather than being silently persisted or automatically copied into the drive.
@@ -167,8 +180,9 @@ This requirement is part of the project design, not merely a style preference: s
 ## Verification Strategy
 
 - Unit-test hardware-independent encoder math, wrapping, calibration validation, signs, and rollover.
+- Regression-test startup/runtime polarity agreement, physical damping direction, chassis rotation, shortest-path reversal, target retention, motor limits, and convergence with a simple motor/encoder model.
 - Build the TeamCode debug APK after adding or changing an OpMode.
 - Complete and record the human-run steps in [HUMAN_TASKS.md](HUMAN_TASKS.md).
-- Physically verify wiring, motor directions, analog polarity, quadrature polarity, counts per revolution, startup alignment, and loaded drivetrain behavior.
+- Hardware configuration, separate quadrature hub, differential gear assembly, analog polarity, quadrature polarity, and individual motor responses are physically verified. Combined motor mixing, startup alignment, and loaded drivetrain behavior remain to be tested.
 - Keep powered tests at reduced limits with the robot raised and clear of moving mechanisms.
 - Update this document and `hardware.md` whenever a design assumption changes.

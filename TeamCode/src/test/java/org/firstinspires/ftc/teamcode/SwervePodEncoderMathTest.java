@@ -63,7 +63,7 @@ public class SwervePodEncoderMathTest {
                 rightEncoder.seed(right, -500);
                 leftEncoder.update(132, 0.1);
                 rightEncoder.update(-468, 0.1);
-                assertEquals(left + Math.PI / 16.0, leftEncoder.getAngleRadians(), EPSILON);
+                assertEquals(left + radiansForCounts(32), leftEncoder.getAngleRadians(), EPSILON);
                 assertEquals(leftEncoder.getAngleRadians(), rightEncoder.getAngleRadians(), EPSILON);
                 assertEquals(leftEncoder.getRateRadiansPerSecond(),
                         rightEncoder.getRateRadiansPerSecond(), EPSILON);
@@ -83,7 +83,7 @@ public class SwervePodEncoderMathTest {
 
     @Test
     public void invalidVoltagesAreRejected() {
-        for (double volts : new double[]{-0.001, 3.200001, Double.NaN,
+        for (double volts : new double[]{-0.001, 3.300001, Double.NaN,
                 Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY}) {
             assertFalse(SwervePodEncoder.validVoltage(volts));
             assertThrows(IllegalArgumentException.class, () -> SwervePodEncoder.rawDegrees(volts));
@@ -114,8 +114,8 @@ public class SwervePodEncoderMathTest {
         for (double angle : new double[]{Double.NaN, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY}) {
             assertThrows(IllegalArgumentException.class, () -> encoder.seed(angle, 999));
             assertEquals(356, encoder.getCount());
-            assertEquals(Math.PI / 2.0, encoder.getAngleRadians(), EPSILON);
-            assertEquals(Math.PI, encoder.getRateRadiansPerSecond(), EPSILON);
+            assertEquals(radiansForCounts(256), encoder.getAngleRadians(), EPSILON);
+            assertEquals(radiansForCounts(256) / 0.5, encoder.getRateRadiansPerSecond(), EPSILON);
         }
     }
 
@@ -128,12 +128,12 @@ public class SwervePodEncoderMathTest {
                 Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY}) {
             assertThrows(IllegalArgumentException.class, () -> encoder.update(612, seconds));
             assertEquals(356, encoder.getCount());
-            assertEquals(Math.PI / 2.0, encoder.getAngleRadians(), EPSILON);
-            assertEquals(Math.PI, encoder.getRateRadiansPerSecond(), EPSILON);
+            assertEquals(radiansForCounts(256), encoder.getAngleRadians(), EPSILON);
+            assertEquals(radiansForCounts(256) / 0.5, encoder.getRateRadiansPerSecond(), EPSILON);
         }
         encoder.update(612, 0.5);
-        assertEquals(Math.PI, encoder.getAngleRadians(), EPSILON);
-        assertEquals(Math.PI, encoder.getRateRadiansPerSecond(), EPSILON);
+        assertEquals(radiansForCounts(512), encoder.getAngleRadians(), EPSILON);
+        assertEquals(radiansForCounts(256) / 0.5, encoder.getRateRadiansPerSecond(), EPSILON);
     }
 
     @Test
@@ -143,14 +143,14 @@ public class SwervePodEncoderMathTest {
             encoder.seed(0.0, 100);
             encoder.update(356, 0.5);
             assertEquals(356, encoder.getCount());
-            assertEquals(sign * Math.PI / 2.0, encoder.getAngleRadians(), EPSILON);
-            assertEquals(sign * Math.PI, encoder.getRateRadiansPerSecond(), EPSILON);
+            assertEquals(sign * radiansForCounts(256), encoder.getAngleRadians(), EPSILON);
+            assertEquals(sign * radiansForCounts(256) / 0.5, encoder.getRateRadiansPerSecond(), EPSILON);
             encoder.update(228, 0.25);
             assertEquals(228, encoder.getCount());
-            assertEquals(sign * Math.PI / 4.0, encoder.getAngleRadians(), EPSILON);
-            assertEquals(-sign * Math.PI, encoder.getRateRadiansPerSecond(), EPSILON);
+            assertEquals(sign * radiansForCounts(128), encoder.getAngleRadians(), EPSILON);
+            assertEquals(-sign * radiansForCounts(128) / 0.25, encoder.getRateRadiansPerSecond(), EPSILON);
             encoder.update(228, 0.1);
-            assertEquals(sign * Math.PI / 4.0, encoder.getAngleRadians(), EPSILON);
+            assertEquals(sign * radiansForCounts(128), encoder.getAngleRadians(), EPSILON);
             assertEquals(0.0, encoder.getRateRadiansPerSecond(), EPSILON);
         }
     }
@@ -161,7 +161,7 @@ public class SwervePodEncoderMathTest {
             SwervePodEncoder encoder = new SwervePodEncoder(sign);
             encoder.seed(0.0, Integer.MAX_VALUE - 2);
             encoder.update(Integer.MIN_VALUE + 2, 0.25);
-            double fiveTicks = sign * 5.0 * 2.0 * Math.PI / 1024.0;
+            double fiveTicks = sign * radiansForCounts(5);
             assertEquals(Integer.MIN_VALUE + 2, encoder.getCount());
             assertEquals(fiveTicks, encoder.getAngleRadians(), EPSILON);
             assertEquals(fiveTicks / 0.25, encoder.getRateRadiansPerSecond(), EPSILON);
@@ -183,7 +183,7 @@ public class SwervePodEncoderMathTest {
         assertEquals(Math.toRadians(-170.0), encoder.getAngleRadians(), EPSILON);
         assertEquals(0.0, encoder.getRateRadiansPerSecond(), EPSILON);
         encoder.update(-123455, 0.02);
-        assertEquals(Math.toRadians(-170.0) - 2.0 * Math.PI / 1024.0,
+        assertEquals(Math.toRadians(-170.0) - radiansForCounts(1),
                 encoder.getAngleRadians(), EPSILON);
     }
 
@@ -192,7 +192,7 @@ public class SwervePodEncoderMathTest {
         SwervePodEncoder encoder = new SwervePodEncoder(1);
         encoder.seed(0.0, 0);
         encoder.update(256, 0.5);
-        assertEquals(Math.PI, encoder.getRateRadiansPerSecond(), EPSILON);
+        assertEquals(radiansForCounts(256) / 0.5, encoder.getRateRadiansPerSecond(), EPSILON);
         encoder.seed(Math.toRadians(-30.0), -1000);
         assertEquals(-1000, encoder.getCount());
         assertEquals(Math.toRadians(-30.0), encoder.getAngleRadians(), EPSILON);
@@ -201,31 +201,24 @@ public class SwervePodEncoderMathTest {
         assertEquals(Math.toRadians(-30.0), encoder.getAngleRadians(), EPSILON);
         assertEquals(0.0, encoder.getRateRadiansPerSecond(), EPSILON);
         encoder.update(-744, 0.5);
-        assertEquals(Math.toRadians(60.0), encoder.getAngleRadians(), EPSILON);
-        assertEquals(Math.PI, encoder.getRateRadiansPerSecond(), EPSILON);
+        assertEquals(SwervePodEncoder.wrapRadians(Math.toRadians(-30.0) + radiansForCounts(256)),
+                encoder.getAngleRadians(), EPSILON);
+        assertEquals(radiansForCounts(256) / 0.5, encoder.getRateRadiansPerSecond(), EPSILON);
     }
 
     @Test
-    public void runtimeQuadratureAccumulatesRelativeToInitialAnalogAngle() {
-        for (int analogSign : new int[]{1, -1}) {
-            for (int quadratureSign : new int[]{1, -1}) {
-                SwervePodEncoder encoder = new SwervePodEncoder(quadratureSign);
-                encoder.seed(SwervePodEncoder.absoluteRadians(
-                        voltsForDegrees(200.0), 30.0, analogSign), 1000);
-                encoder.update(1256, 0.5);
-                double expectedDegrees = analogSign * 170.0 + quadratureSign * 90.0;
-                if (expectedDegrees > 180.0) expectedDegrees -= 360.0;
-                if (expectedDegrees <= -180.0) expectedDegrees += 360.0;
-                assertEquals(Math.toRadians(expectedDegrees), encoder.getAngleRadians(), EPSILON);
-                encoder.update(2280, 0.25);
-                assertEquals(2280, encoder.getCount());
-                assertEquals(Math.toRadians(expectedDegrees), encoder.getAngleRadians(), EPSILON);
-                // A whole turn has zero wrapped displacement but nonzero angular velocity.
-                assertEquals(quadratureSign * 8.0 * Math.PI, encoder.getRateRadiansPerSecond(), EPSILON);
-                encoder.update(2024, 0.5);
-                assertEquals(Math.toRadians(analogSign * 170.0), encoder.getAngleRadians(), EPSILON);
-                assertEquals(-quadratureSign * Math.PI, encoder.getRateRadiansPerSecond(), EPSILON);
-            }
+    public void runtimeQuadratureUsesConfiguredCountScale() {
+        for (int sign : new int[]{1, -1}) {
+            SwervePodEncoder encoder = new SwervePodEncoder(sign);
+            encoder.seed(0.0, 1000);
+            encoder.update(2024, 0.5);
+            assertEquals(sign * radiansForCounts(1024), encoder.getAngleRadians(), EPSILON);
+            assertEquals(sign * radiansForCounts(1024) / 0.5,
+                    encoder.getRateRadiansPerSecond(), EPSILON);
+            encoder.update(5096, 0.5);
+            assertEquals(0.0, encoder.getAngleRadians(), EPSILON);
+            assertEquals(sign * radiansForCounts(3072) / 0.5,
+                    encoder.getRateRadiansPerSecond(), EPSILON);
         }
     }
 
@@ -252,8 +245,11 @@ public class SwervePodEncoderMathTest {
         controller.start();
         controller.step(voltsForDegrees(200.0), 0.01);
         assertTrue(controller.isActive());
-        assertEquals(PodAlignmentController.MAX_COMMAND, controller.getCommand(), EPSILON);
+        assertEquals(-PodAlignmentController.MAX_COMMAND, controller.getCommand(), EPSILON);
         controller.step(voltsForDegrees(10.5), 0.01);
+        assertTrue(controller.isActive());
+        assertEquals(0.0, controller.getCommand(), EPSILON);
+        controller.step(voltsForDegrees(10.5), PodAlignmentController.SETTLE_SECONDS);
         assertTrue(controller.isComplete());
         assertEquals(0.0, controller.getCommand(), EPSILON);
     }
@@ -274,14 +270,106 @@ public class SwervePodEncoderMathTest {
     }
 
     @Test
-    public void calibrationIsNotReadyBeforeMeasurementsAreVerified() {
-        assertFalse(SwervePodEncoder.CALIBRATION_VERIFIED);
-        assertFalse(SwervePodEncoder.calibrationReady());
-        assertEquals(0.0, SwervePodEncoder.forwardTargetDegrees(true), EPSILON);
-        assertEquals(0.0, SwervePodEncoder.forwardTargetDegrees(false), EPSILON);
+    public void upperRailMarginClampsToWrapWithoutChangingCalibrationScale() {
+        for (double volts : new double[]{3.2, 3.200001, 3.25, 3.3}) {
+            assertTrue(SwervePodEncoder.validVoltage(volts));
+            assertEquals(360.0, SwervePodEncoder.rawDegrees(volts), EPSILON);
+            assertEquals(0.0, SwervePodEncoder.absoluteRadians(volts, 0.0, -1), EPSILON);
+            assertEquals(Math.toRadians(SwervePodEncoder.RIGHT_FORWARD_DEGREES),
+                    SwervePodEncoder.absoluteRadians(volts, SwervePodEncoder.RIGHT_FORWARD_DEGREES, -1), EPSILON);
+        }
+        assertEquals(180.0, SwervePodEncoder.rawDegrees(1.6), EPSILON);
+        assertEquals(0.0, SwervePodEncoder.absoluteRadians(0.122, SwervePodEncoder.LEFT_FORWARD_DEGREES, -1), EPSILON);
+        assertEquals(0.0, SwervePodEncoder.absoluteRadians(0.258, SwervePodEncoder.RIGHT_FORWARD_DEGREES, -1), EPSILON);
+    }
+
+    @Test
+    public void alignmentCanCrossTheAnalogWrapWithAnUpperRailReading() {
+        PodAlignmentController controller = new PodAlignmentController(SwervePodEncoder.RIGHT_FORWARD_DEGREES, -1);
+        controller.start();
+        controller.step(3.25, 0.02);
+        assertTrue(controller.isActive());
+        assertFalse(controller.isFailed());
+        assertTrue(controller.getCommand() > 0.0); // CCW through the wrap toward .258 V.
+        controller.step(0.01, 0.02);
+        assertTrue(controller.getCommand() > 0.0);
+        controller.step(0.258, 0.02);
+        controller.step(0.258, PodAlignmentController.SETTLE_SECONDS);
+        assertTrue(controller.isComplete());
+        assertEquals(0.0, controller.getCommand(), EPSILON);
+    }
+
+    @Test
+    public void outOfRangeAlignmentFaultReportsVoltageAndStopsCommand() {
+        PodAlignmentController controller = new PodAlignmentController(SwervePodEncoder.RIGHT_FORWARD_DEGREES, -1);
+        controller.start();
+        controller.step(1.6, 0.02);
+        assertTrue(Math.abs(controller.getCommand()) > 0.0);
+        controller.step(3.4, 0.02);
+        assertTrue(controller.isFailed());
+        assertEquals(0.0, controller.getCommand(), EPSILON);
+        assertTrue(controller.getStatus().contains("3.4 V"));
+        assertTrue(controller.getStatus().contains("0..3.3 V"));
+    }
+
+    @Test
+    public void alignmentMustStayInToleranceInsteadOfJustPassingThroughIt() {
+        PodAlignmentController controller = new PodAlignmentController(10.0, -1);
+        controller.start();
+        controller.step(voltsForDegrees(10.0), 0.2);
+        assertFalse(controller.isComplete()); // Time before the first in-window sample does not count.
+        controller.step(voltsForDegrees(10.0), 0.06);
+        controller.step(voltsForDegrees(20.0), 0.01); // Overshoot resets settling.
+        assertTrue(Math.abs(controller.getCommand()) > 0.0);
+        controller.step(voltsForDegrees(10.0), 0.01);
+        controller.step(voltsForDegrees(10.0), 0.06);
+        assertFalse(controller.isComplete());
+        controller.step(voltsForDegrees(10.0), 0.05);
+        assertTrue(controller.isComplete());
+        assertEquals(0.0, controller.getCommand(), EPSILON);
+        controller.abort("partner failed");
+        assertTrue(controller.isFailed());
+        assertFalse(controller.isComplete());
+        controller.start();
+        controller.step(voltsForDegrees(10.0), 0.01);
+        assertTrue(controller.isActive()); // A new run must settle again.
+    }
+
+    @Test
+    public void alignmentCannotRemainInSettlingStatePastTimeout() {
+        PodAlignmentController controller = new PodAlignmentController(10.0, -1);
+        controller.start();
+        controller.step(voltsForDegrees(30.0), PodAlignmentController.TIMEOUT_SECONDS - 0.01);
+        controller.step(voltsForDegrees(10.0), 0.02);
+        assertTrue(controller.isFailed());
+        assertEquals(0.0, controller.getCommand(), EPSILON);
+    }
+
+    @Test
+    public void lateSettledReadingDoesNotOverrideAlignmentTimeout() {
+        PodAlignmentController controller = new PodAlignmentController(10.0, -1);
+        controller.start();
+        controller.step(voltsForDegrees(10.0), PodAlignmentController.TIMEOUT_SECONDS - 0.05);
+        controller.step(voltsForDegrees(10.0), PodAlignmentController.SETTLE_SECONDS);
+        assertTrue(controller.isFailed());
+        assertFalse(controller.isComplete());
+    }
+
+    @Test
+    public void confirmedCalibrationIsReadyForPoweredCommissioning() {
+        assertTrue(SwervePodEncoder.CALIBRATION_VERIFIED);
+        assertTrue(SwervePodEncoder.calibrationReady());
+        assertEquals(13.725, SwervePodEncoder.forwardTargetDegrees(true), EPSILON);
+        assertEquals(29.025, SwervePodEncoder.forwardTargetDegrees(false), EPSILON);
+        assertEquals(-1, SwervePodEncoder.LEFT_ANALOG_SIGN);
+        assertEquals(-1, SwervePodEncoder.RIGHT_ANALOG_SIGN);
     }
 
     private static double voltsForDegrees(double degrees) {
         return degrees / 360.0 * 3.2;
+    }
+
+    private static double radiansForCounts(double counts) {
+        return counts * 2.0 * Math.PI / SwervePodEncoder.COUNTS_PER_REVOLUTION;
     }
 }
