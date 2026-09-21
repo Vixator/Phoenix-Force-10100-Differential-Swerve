@@ -1,5 +1,7 @@
 package org.firstinspires.ftc.teamcode;
 
+import com.acmerobotics.dashboard.FtcDashboard;
+import com.acmerobotics.dashboard.telemetry.MultipleTelemetry;
 import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
@@ -16,12 +18,7 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
     private static final double MAX_MOTOR_TICKS_PER_SECOND = HardwareConstants.MAX_MOTOR_TICKS_PER_SECOND;
     private static final int TELEMETRY_INTERVAL_MS = 100;
     private static final double MAX_LOOP_SECONDS = 0.25;
-    // Source tuning values; motor PIDF is applied once during INIT.
     private static final double MAX_DRIVE_POWER = 1.0;
-    private static final double VEL_PID_KP = 15.0;
-    private static final double VEL_PID_KI = 0.5;
-    private static final double VEL_PID_KD = 0.5;
-    private static final double VEL_PID_KF = 32767.0 / MAX_MOTOR_TICKS_PER_SECOND;
 
     // Indexed by the documented Control Hub ports: left pod 0/1, right pod 2/3.
     private final DcMotorEx[] motors = new DcMotorEx[4];
@@ -34,6 +31,10 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
     private final DifferentialSwervePodController leftController = new DifferentialSwervePodController();
     private final DifferentialSwervePodController rightController = new DifferentialSwervePodController();
     private HubSnapshotReader snapshots;
+    private double appliedMotorP = Double.NaN;
+    private double appliedMotorI = Double.NaN;
+    private double appliedMotorD = Double.NaN;
+    private double appliedMotorF = Double.NaN;
 
     @Override
     public void runOpMode() {
@@ -41,6 +42,7 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
         LynxModule.BulkCachingMode[] previousModes = new LynxModule.BulkCachingMode[hubs.size()];
         for (int i = 0; i < hubs.size(); i++) previousModes[i] = hubs.get(i).getBulkCachingMode();
         try {
+            telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
             initializeHardware();
             for (LynxModule hub : hubs) hub.setBulkCachingMode(LynxModule.BulkCachingMode.MANUAL);
             telemetry.setMsTransmissionInterval(TELEMETRY_INTERVAL_MS);
@@ -78,6 +80,7 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
                 lastSample = sample;
                 leftEncoder.update(rawCount(leftQuadrature), seconds);
                 rightEncoder.update(rawCount(rightQuadrature), seconds);
+                applyMotorPidfIfChanged();
                 input.update(gamepad1.left_stick_x, gamepad1.left_stick_y, gamepad1.right_stick_x);
                 if (snapshots.getRecoveredReads() != recoveredReads) {
                     recoveredReads = snapshots.getRecoveredReads();
@@ -109,14 +112,16 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
                 if (isStopRequested()) return;
                 sampleSeconds(sample, System.nanoTime()); // Reject commands based on excessively old feedback.
                 commandPod(0, leftController.getLeftMotorCommand(), leftController.getRightMotorCommand());
-                commandPod(2, rightController.getLeftMotorCommand(), rightController.getRightMotorCommand());
+                commandRightPod(rightController.getLeftMotorCommand(), rightController.getRightMotorCommand());
                 if (sample >= nextTelemetry) {
                     nextTelemetry = sample + TELEMETRY_INTERVAL_MS * 1_000_000L;
                     telemetry.addLine("ROBOT-CENTRIC");
-                    showPod("Left", leftEncoder, leftController);
-                    showPod("Right", rightEncoder, rightController);
+                    showPod("Left", leftEncoder, leftController, false, kinematics.getLeftSpeed());
+                    showPod("Right", rightEncoder, rightController, true, kinematics.getRightSpeed());
                     telemetry.addData("Forward / right / CW rad/s", "%.2f / %.2f / %.2f",
                             input.getForward(), input.getStrafe(), input.getTurn());
+                    telemetry.addData("Module wheel speed (m/s)", "left %+.3f / right %+.3f",
+                            moduleSpeedMetersPerSecond(0), moduleSpeedMetersPerSecond(2));
                     telemetry.addData("Loop (ms)", "%.1f", seconds * 1000.0);
                     showHubHealth();
                     telemetry.update();
@@ -150,7 +155,6 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
             motors[i].setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
             motors[i].setVelocity(0.0);
             motors[i].setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-            motors[i].setVelocityPIDFCoefficients(VEL_PID_KP, VEL_PID_KI, VEL_PID_KD, VEL_PID_KF);
             if (motors[i].getPortNumber() != i || motors[i].getController() != motors[0].getController()) {
                 throw new IllegalArgumentException("Configure motor0..motor3 on Control Hub ports 0..3");
             }
@@ -164,6 +168,7 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
         }
         leftAbsolute = hardwareMap.get(AnalogInput.class, SwervePodEncoder.LEFT_ANALOG_NAME);
         rightAbsolute = hardwareMap.get(AnalogInput.class, SwervePodEncoder.RIGHT_ANALOG_NAME);
+        applyMotorPidfIfChanged();
     }
 
     private boolean alignPodsToForward() {
@@ -197,7 +202,7 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
             if (isStopRequested()) return false;
             sampleSeconds(sample, System.nanoTime());
             commandPod(0, left.getCommand(), -left.getCommand());
-            commandPod(2, right.getCommand(), -right.getCommand());
+            commandRightPod(right.getCommand(), -right.getCommand());
             if (left.isComplete() && right.isComplete()) return true;
             if (sample >= nextTelemetry) {
                 nextTelemetry = sample + TELEMETRY_INTERVAL_MS * 1_000_000L;
@@ -311,11 +316,28 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
     }
 
     private static void updatePod(DifferentialSwervePodController controller, SwervePodEncoder encoder,
-                                  double target, double speed, double seconds) {
+                                   double target, double speed, double seconds) {
+        SwerveTuning.validate();
         controller.update(encoder.getAngleRadians(), encoder.getRateRadiansPerSecond(), target, speed, seconds,
-                DifferentialSwervePodController.DEFAULT_KP, DifferentialSwervePodController.DEFAULT_KD,
-                MAX_DRIVE_POWER, DifferentialSwervePodController.DEFAULT_MAX_STEER,
-                DifferentialSwervePodController.DEFAULT_SLEW_RATE);
+                SwerveTuning.STEERING_P, SwerveTuning.STEERING_D,
+                MAX_DRIVE_POWER, SwerveTuning.STEERING_MAX_COMMAND,
+                SwerveTuning.STEERING_SLEW_RATE);
+    }
+
+    private void applyMotorPidfIfChanged() {
+        SwerveTuning.validate();
+        double p = SwerveTuning.MOTOR_VELOCITY_P;
+        double i = SwerveTuning.MOTOR_VELOCITY_I;
+        double d = SwerveTuning.MOTOR_VELOCITY_D;
+        double f = SwerveTuning.MOTOR_VELOCITY_F;
+        if (p == appliedMotorP && i == appliedMotorI && d == appliedMotorD && f == appliedMotorF) return;
+        for (DcMotorEx motor : motors) {
+            if (motor != null) motor.setVelocityPIDFCoefficients(p, i, d, f);
+        }
+        appliedMotorP = p;
+        appliedMotorI = i;
+        appliedMotorD = d;
+        appliedMotorF = f;
     }
 
     private void commandPod(int firstMotor, double left, double right) {
@@ -323,13 +345,67 @@ public class DifferentialSwerveTeleOp extends LinearOpMode {
         motors[firstMotor + 1].setVelocity(right * MAX_MOTOR_TICKS_PER_SECOND);
     }
 
-    private void showPod(String name, SwervePodEncoder encoder, DifferentialSwervePodController controller) {
+    private void commandRightPod(double left, double right) {
+        // Measured right-pod polarity reverses common wheel drive but preserves differential steering.
+        commandPod(2, -right, -left);
+    }
+
+    private void showPod(String name, SwervePodEncoder encoder,
+                         DifferentialSwervePodController controller, boolean rightPod, double requestedSpeed) {
         telemetry.addData(name + " angle / target / error (deg)", "%.1f / %.1f / %.1f",
                 Math.toDegrees(encoder.getAngleRadians()), Math.toDegrees(controller.getOptimizedTargetAngle()),
                 Math.toDegrees(controller.getAngleError()));
+        double leftCommand = controller.getLeftMotorCommand();
+        double rightCommand = controller.getRightMotorCommand();
+        if (rightPod) {
+            double logicalLeft = leftCommand;
+            leftCommand = -rightCommand;
+            rightCommand = -logicalLeft;
+        }
         telemetry.addData(name + " motor targets (ticks/s)", "%.0f / %.0f",
-                controller.getLeftMotorCommand() * MAX_MOTOR_TICKS_PER_SECOND,
-                controller.getRightMotorCommand() * MAX_MOTOR_TICKS_PER_SECOND);
+                leftCommand * MAX_MOTOR_TICKS_PER_SECOND, rightCommand * MAX_MOTOR_TICKS_PER_SECOND);
+        // Scalar values can be graphed in Dashboard. Individual speeds distinguish a
+        // stopped motor from opposite motor speeds that cancel in the wheel average.
+        int firstMotor = rightPod ? 2 : 0;
+        showMotor(firstMotor, leftCommand);
+        showMotor(firstMotor + 1, rightCommand);
+        telemetry.addData(name + " requested speed (normalized)", requestedSpeed);
+        telemetry.addData(name + " drive command",
+                (controller.getLeftMotorCommand() + controller.getRightMotorCommand()) / 2.0);
+        telemetry.addData(name + " steer command", controller.getSteeringCommand());
+        telemetry.addData(name + " angle error (deg)", Math.toDegrees(controller.getAngleError()));
+        telemetry.addData(name + " quadrature count", encoder.getCount());
+        telemetry.addData(name + " quadrature angle (deg)", Math.toDegrees(encoder.getAngleRadians()));
+        telemetry.addData(name + " pod rate (deg/s)", Math.toDegrees(encoder.getRateRadiansPerSecond()));
+
+        // Diagnostic only: use the cached analog sample, without reseeding the tracker
+        // or altering control if this independent position measurement disagrees.
+        double volts = (rightPod ? rightAbsolute : leftAbsolute).getVoltage();
+        telemetry.addData(name + " absolute voltage", volts);
+        double absoluteAngle = SwervePodEncoder.validVoltage(volts)
+                ? SwervePodEncoder.absoluteRadians(volts,
+                        rightPod ? SwervePodEncoder.RIGHT_FORWARD_DEGREES : SwervePodEncoder.LEFT_FORWARD_DEGREES,
+                        rightPod ? SwervePodEncoder.RIGHT_ANALOG_SIGN : SwervePodEncoder.LEFT_ANALOG_SIGN)
+                : Double.NaN;
+        telemetry.addData(name + " absolute angle (deg)", Math.toDegrees(absoluteAngle));
+        telemetry.addData(name + " quadrature minus absolute (deg)",
+                Math.toDegrees(SwervePodEncoder.wrapRadians(encoder.getAngleRadians() - absoluteAngle)));
+    }
+
+    private void showMotor(int index, double command) {
+        // Velocity and position reuse the existing bulk snapshot; do not add slow
+        // per-motor current transactions to the feedback/control loop.
+        telemetry.addData("motor" + index + " target (ticks/s)", command * MAX_MOTOR_TICKS_PER_SECOND);
+        telemetry.addData("motor" + index + " measured (ticks/s)", motors[index].getVelocity());
+        telemetry.addData("motor" + index + " count", motors[index].getCurrentPosition());
+    }
+
+    private double moduleSpeedMetersPerSecond(int firstMotor) {
+        double averageMotorTicksPerSecond =
+                (motors[firstMotor].getVelocity() + motors[firstMotor + 1].getVelocity()) / 2.0;
+        if (firstMotor == 2) averageMotorTicksPerSecond = -averageMotorTicksPerSecond;
+        return averageMotorTicksPerSecond / HardwareConstants.MOTOR_TICKS_PER_REVOLUTION
+                * HardwareConstants.TOTAL_DRIVE_RATIO * HardwareConstants.WHEEL_CIRCUMFERENCE_METERS;
     }
 
     private void stopAllMotors() {

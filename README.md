@@ -15,7 +15,7 @@ The [drive TeleOp](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/Differe
 | `2` | `motor2` | Right Pod: LEFT Motor |
 | `3` | `motor3` | Right Pod: RIGHT Motor |
 
-All four drive motors use software direction `FORWARD`. Individual testing confirmed joystick-up/positive command rotates `motor0` and `motor2` counterclockwise, while `motor1` and `motor3` rotate clockwise, viewed from above; joystick-down reverses each response. Equal positive motor commands propelling robot-forward and the combined steering mix still require testing. Drive-motor encoders provide motor velocity/count feedback, but the active drive controller uses the dedicated pod quadrature encoders for pod-position feedback.
+All four drive motors use software direction `FORWARD`. Individual testing confirmed joystick-up/positive command rotates `motor0` and `motor2` counterclockwise, while `motor1` and `motor3` rotate clockwise, viewed from above; joystick-down reverses each response. Physical testing found that the right pod requires its logical motor pair to be negated and swapped at the hardware boundary. This reverses equal-command wheel drive while leaving opposite-command pod steering unchanged. Drive-motor encoders provide motor velocity/count feedback, but the active drive controller uses the dedicated pod quadrature encoders for pod-position feedback.
 
 Two **Melonbotics Through Bore Encoders** provide absolute analog startup position and quadrature tracking. Their quadrature connections on the Expansion Hub are unchanged:
 
@@ -39,7 +39,7 @@ Select **Differential Swerve TeleOp** on the Driver Station.
 
 - **Left stick:** Robot-relative direction and speed. Up means robot-forward, right means robot-right. Translation uses a radial deadband followed by linear magnitude scaling.
 - **Right stick X:** Rotation about the midpoint between the pods. Right commands clockwise/right rotation viewed from above. Rotation uses a deadband and cubic shaping. The measured pod-steering motor polarity is applied separately inside each pod controller.
-- **Full-stick rotation:** With translation centered and pods aligned, both left-pod motors request full speed and both right-pod motors request full speed in the opposite direction (about ±2781 ticks/s). Left turn reverses these signs. Steering corrections retain priority, and combined translation/rotation is normalized to fit the motor limits.
+- **Full-stick rotation:** With translation centered and pods aligned, both pods receive the physical motor signs needed to roll their wheels in opposite chassis directions (about ±2781 ticks/s). Left turn reverses these signs. Steering corrections retain priority, and combined translation/rotation is normalized to fit the motor limits.
 - **Release right stick:** Commands zero chassis rotation; it does not actively hold a heading.
 - **Triggers:** Not used for driving.
 
@@ -53,6 +53,24 @@ Select **Differential Swerve TeleOp** on the Driver Station.
 Analog readings accept 0..3.3 V; the 3.2..3.3 V upper margin is clamped to the wrap endpoint while angle conversion retains the documented 3.2 V scale. Alignment telemetry shows both raw voltages, and analog faults report the measured voltage. The previous exact-3.2 V cutoff could reject a slightly overscale reading; the earlier generic fault did not establish the actual voltage.
 
 An invalid hub read immediately commands zero velocity, then retries the complete snapshot up to three total attempts within 150 ms, with 10 ms between attempts. A recovered read during driving requires both sticks centered before motion resumes and checks analog/quadrature agreement without reseeding. Persistent failure or a loop delay above 250 ms latches a **DRIVE STOPPED** telemetry state until Stop/reinitialization instead of throwing an uncaught feedback exception. Telemetry/logs identify the configured hub, connection, and recovered-read count. Real motor response and communication recovery still require robot testing.
+
+### Investigating an intermittent stopped pod
+
+The drive now publishes numeric Dashboard series for each motor's target velocity, measured velocity, and encoder count, plus each pod's requested speed, drive/steer commands, angle error, quadrature angle/count/rate, absolute voltage/angle, and wrapped `quadrature minus absolute (deg)`. Motor and analog readings reuse the bulk snapshots. Absolute angles are diagnostic during normal driving; they do not correct or reseed quadrature.
+
+If the right pod stops, capture these values **before using counterclockwise rotation to recover it**, including a brief translation-only request with the rotation stick centered:
+
+- Graph `motor2 target (ticks/s)` and `motor3 target (ticks/s)` against their `measured (ticks/s)` series. Nonzero targets with near-zero measured speeds point toward motor response, velocity-loop, encoder, or mechanical trouble; they do not by themselves identify which one. Counts help distinguish actual movement from a bad velocity reading.
+- Compare `Right requested speed (normalized)`, `Right drive command`, `Right steer command`, and `Right angle error (deg)`. Drive is deliberately suppressed near a 90-degree steering error, but steering should continue. A zero wheel-speed average alone does not mean both motors are stopped.
+- Compare `Right quadrature angle (deg)` against `Right absolute angle (deg)`. A persistent discrepancy while stationary suggests a feedback/calibration problem. Brief differences during motion may reflect the two hubs' sampling times.
+- Forward plus clockwise turn can cancel the right pod's requested vector, holding its previous angle. Centering rotation must restore a translation request. Remaining stuck after that is not explained by this normal cancellation.
+
+The reported symptom is an intermittent right-module stop relieved by rotation-stick input; the exact triggering inputs and whether translation alone clears it are unconfirmed. Two code paths can resemble this:
+
+- **Partial-stick cancellation:** roughly 16.875% forward stick and 52.5% clockwise turn stick produce equal forward and rotation contributions at the right pod. Its requested speed becomes zero while the left still drives. Increasing or decreasing rotation removes the cancellation. Near-cancellation produces very low speed, and even a small sideways input can change the requested pod angle sharply.
+- **Alignment suppression plus unsuccessful steering:** cosine-squared scaling leaves about 3% of wheel drive at 80° error and zero at 90°. The controller still requests steering, capped at 20% of maximum motor velocity (about 556 ticks/s per motor in pure steering, not a 20% electrical-power limit). If the physical pod cannot execute that correction, wheel drive stays suppressed. Rotation input changes the target angle and can restore drive without the pod first moving. This explains a possible mechanism, not a confirmed hardware fault.
+
+Controller tests cover those two command patterns and mixed-input histories followed by translation using a simple motor/encoder model on both pods. They do not reproduce real friction, binding, hub velocity-loop behavior, or intermittent wiring faults. SDK 12.0 source review confirms that explicit `getBulkData()` refreshes the manual cache and `setMotorVelocity()` sends a velocity command on every call. Neither is a change-only cache requiring joystick movement to refresh it. The stall has not been attributed to a confirmed code defect; record a Dashboard graph or Driver Station video of the event to identify the next targeted fix.
 
 ### Encoder Test
 
@@ -75,7 +93,7 @@ The code calculates each pod's requested travel vector, then combines wheel driv
 
 **Steering polarity fix:** Positive differential steering (`left+ / right−`) physically rotates both pods counterclockwise, while calibrated pod angles increase clockwise. The runtime controller now applies `steer = -(Kp * angleError - Kd * measuredRate)`, matching the working startup alignment. Previously the runtime sign was reversed, causing corrections and damping to reinforce unwanted motion. This explains why alignment could work but joystick motion triggered runaway steering. Chassis right-stick input is clockwise-positive; it is not inverted to compensate for individual pod steering.
 
-Runtime steering defaults are `Kp=0.5`, `Kd=0.01`, a `0.20` steering cap, and a `2.0/s` slew limit. Driver Station telemetry shows each pod's measured angle, optimized target, error, and motor velocity targets. These are preliminary settings for robot verification.
+Runtime steering defaults are `Kp=0.5`, `Kd=0.01`, a `0.20` steering cap, and a `2.0/s` slew limit. Driver Station telemetry shows each pod's measured angle, optimized target, error, motor velocity targets, and signed left/right module wheel speeds in m/s. Positive module speed is robot-forward and negative is robot-reverse. Module speed is calculated from the average measured velocity of the pod's two motors and the configured encoder, gear, and wheel constants; it is wheel-speed feedback, not independently measured ground speed. These are preliminary settings for robot verification.
 
 Motor commands and velocity telemetry use **encoder ticks/second**, not RPM. The supplied motor specification is 1150 RPM no-load, 5.2:1 planetary gearing, 28 pulses per encoder-shaft revolution, and 145.1 pulses per gearbox-output revolution. The calculated motor limit is approximately 2781.08 ticks/second. Steering receives priority when the combined requests exceed motor capacity; wheel drive uses the remaining headroom.
 
@@ -101,11 +119,36 @@ Mechanically indexing each encoder near **1.6 V = 180 raw degrees** at directed 
 - **Steering slew limiting:** Time-based limiting reduces abrupt changes to the steering command.
 - **Bulk reads:** One validated snapshot per configured hub per drive loop; encoder getters reuse that snapshot.
 - **Telemetry:** Updates at 10 Hz and reuses stored pod counts. Requested-vector angles may differ from optimized pod angles when wheel direction is reversed.
-- **Velocity PIDF:** Applied once during INIT to the four drive motors only.
+- **Velocity PIDF:** Applied during INIT and reapplied to all four drive motors whenever a Dashboard value changes.
 
 ### Tuning and Validation
 
-PIDF/PD gains, deadbands, slew rate, and operating limits are preliminary source constants. Edit pod tuning in `DifferentialSwervePodController`, stick shaping in `SwerveDriverInput`, and motor PIDF/drive limit in `DifferentialSwerveTeleOp`, then rebuild. **FTC Dashboard is not installed.** The no-load wheel-speed estimate is not a measured loaded limit.
+FTC Dashboard 0.6.0 is installed. The embedded Dashboard server starts with the Robot Controller app; no separate server process is needed for normal use.
+
+1. Build and install the Robot Controller app after dependency changes: `./gradlew.bat :TeamCode:assembleDebug`. Deploy it from Android Studio or with your normal ADB workflow.
+2. Connect the computer to the Control Hub Wi-Fi network. Find its password in the Driver Station's **Program and Manage** screen if needed.
+3. Open `http://192.168.43.1:8080/dash` for a Control Hub. A phone Robot Controller using Wi-Fi Direct normally uses `http://192.168.49.1:8080/dash` instead.
+4. Initialize **Differential Swerve TeleOp**. Open **Config**, expand **SwerveTuning**, edit a value, and press Enter. Runtime steering values take effect on the next control loop. Changed motor PIDF values are detected and written to all four motors while the OpMode runs.
+5. Use the Dashboard telemetry graph to select angle/error, motor target velocity, or `Module wheel speed (m/s)` series. Continue to operate the robot from the Driver Station; browser gamepad control is not recommended for drivetrain tuning.
+
+The `SwerveTuning` panel contains all active closed-loop drivetrain settings:
+
+| Dashboard field | Default | Function |
+| :--- | ---: | :--- |
+| `MOTOR_VELOCITY_P` | `15.0` | REV motor velocity proportional gain |
+| `MOTOR_VELOCITY_I` | `0.5` | REV motor velocity integral gain |
+| `MOTOR_VELOCITY_D` | `0.5` | REV motor velocity derivative gain |
+| `MOTOR_VELOCITY_F` | `11.782...` | REV motor velocity feedforward gain |
+| `STEERING_P` | `0.5` | Runtime pod-angle proportional gain, using radians |
+| `STEERING_D` | `0.01` | Runtime pod angular-rate damping gain, using rad/s |
+| `STEERING_MAX_COMMAND` | `0.20` | Maximum differential steering command |
+| `STEERING_SLEW_RATE` | `2.0` | Maximum steering-command change per second |
+| `ALIGNMENT_P` | `0.005` | INIT absolute-alignment proportional gain, using degrees |
+| `ALIGNMENT_MAX_COMMAND` | `0.20` | Maximum INIT alignment command |
+
+Dashboard edits change live in-memory values only. Record successful gains and update the defaults in [`SwerveTuning.java`](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/SwerveTuning.java) before rebuilding; do not assume browser edits will survive an app restart or redeployment. Values are validated as finite and nonnegative, command limits must be in `0..1`, and an invalid value stops the OpMode. Tune with the robot raised initially, keep clear during INIT alignment, and change one control layer at a time: motor velocity PIDF first, runtime steering PD second, then INIT alignment P.
+
+The no-load wheel-speed estimate is not a measured loaded limit. Stick deadbands and kinematic limits remain source constants because they are not PIDF controller settings.
 
 The debug APK build and unit tests passed using `./gradlew.bat :TeamCode:testDebugUnitTest :TeamCode:assembleDebug`. Tests cover encoder math, startup/runtime correction agreement, damping direction, strafing, chassis rotation, reverse travel, angle wrap, motor limits, target retention, and closed-loop convergence using a simple motor model. The model verifies feedback direction, not physical tuning. Complete the real-world commissioning checks in [HUMAN_TASKS.md](HUMAN_TASKS.md); tests do not establish physical stability, loaded speed, or hardware loop timing. **Zero volts can be a valid absolute position or a disconnected sensor**; range checks are not reliable disconnect protection. Frozen/disconnected quadrature feedback can also return valid hub data, and runtime analog correction or reliable sensor-disconnect detection is not implemented.
 

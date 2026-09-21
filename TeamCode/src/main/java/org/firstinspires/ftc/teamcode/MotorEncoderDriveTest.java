@@ -75,13 +75,20 @@ public class MotorEncoderDriveTest extends OpMode {
         rightCommand /= scale;
 
         stopAllMotors();
-        motors[leftMotorIndex].setVelocity(leftCommand * MAX_COMBINED_TICKS_PER_SECOND);
-        motors[rightMotorIndex].setVelocity(rightCommand * MAX_COMBINED_TICKS_PER_SECOND);
+        double physicalLeftCommand = leftCommand;
+        double physicalRightCommand = rightCommand;
+        if (leftMotorIndex == 2) {
+            physicalLeftCommand = -rightCommand;
+            physicalRightCommand = -leftCommand;
+        }
+        motors[leftMotorIndex].setVelocity(physicalLeftCommand * MAX_COMBINED_TICKS_PER_SECOND);
+        motors[rightMotorIndex].setVelocity(physicalRightCommand * MAX_COMBINED_TICKS_PER_SECOND);
 
         telemetry.addData("Mode", "COMBINED %s POD", podName);
         telemetry.addData("Drive", "%.2f (left stick Y)", drive);
         telemetry.addData("Steer", "%.2f (right stick X, right=clockwise)", steer);
-        telemetry.addData("Mixed motor commands", "left %.2f / right %.2f", leftCommand, rightCommand);
+        telemetry.addData("Physical motor commands", "left %.2f / right %.2f",
+                physicalLeftCommand, physicalRightCommand);
         telemetry.addLine("LB=left pod, RB=right pod; release bumper to return to individual mode.");
         telemetry.addLine("Combined output capped at 420 ticks/s; robot must remain raised.");
     }

@@ -2,8 +2,6 @@ package org.firstinspires.ftc.teamcode;
 
 /** Bounded analog-feedback pod alignment with no hardware dependencies. */
 public final class PodAlignmentController {
-    public static final double KP = 0.005;
-    public static final double MAX_COMMAND = 0.20;
     public static final double TOLERANCE_DEGREES = 2.0;
     public static final double SETTLE_SECONDS = 0.10;
     public static final double TIMEOUT_SECONDS = 5.0;
@@ -80,8 +78,10 @@ public final class PodAlignmentController {
             status = "active";
             // The confirmed motor wiring makes positive steering command rotate CCW,
             // while positive analog error requires a CW correction.
+            SwerveTuning.validate();
             command = clamp(DifferentialSwervePodController.motorSteeringForClockwise(
-                    lastErrorDegrees * KP), -MAX_COMMAND, MAX_COMMAND);
+                            lastErrorDegrees * SwerveTuning.ALIGNMENT_P),
+                    -SwerveTuning.ALIGNMENT_MAX_COMMAND, SwerveTuning.ALIGNMENT_MAX_COMMAND);
         }
     }
 

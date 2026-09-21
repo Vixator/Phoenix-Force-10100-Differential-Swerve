@@ -245,7 +245,7 @@ public class SwervePodEncoderMathTest {
         controller.start();
         controller.step(voltsForDegrees(200.0), 0.01);
         assertTrue(controller.isActive());
-        assertEquals(-PodAlignmentController.MAX_COMMAND, controller.getCommand(), EPSILON);
+        assertEquals(-SwerveTuning.ALIGNMENT_MAX_COMMAND, controller.getCommand(), EPSILON);
         controller.step(voltsForDegrees(10.5), 0.01);
         assertTrue(controller.isActive());
         assertEquals(0.0, controller.getCommand(), EPSILON);
