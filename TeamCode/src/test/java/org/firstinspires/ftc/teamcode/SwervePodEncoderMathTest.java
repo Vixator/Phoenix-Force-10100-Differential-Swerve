@@ -255,6 +255,16 @@ public class SwervePodEncoderMathTest {
     }
 
     @Test
+    public void alignmentControllerRetainsAuthorityJustOutsideSettlingWindow() {
+        PodAlignmentController controller = new PodAlignmentController(10.0, 1);
+        controller.start();
+        controller.step(voltsForDegrees(12.1), 0.01);
+        assertTrue(controller.isActive());
+        assertEquals(SwerveTuning.ALIGNMENT_MIN_COMMAND,
+                Math.abs(controller.getCommand()), EPSILON);
+    }
+
+    @Test
     public void alignmentControllerFailsOnInvalidFeedbackOrTimeout() {
         PodAlignmentController invalid = new PodAlignmentController(10.0, 1);
         invalid.start();

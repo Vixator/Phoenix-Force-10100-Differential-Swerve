@@ -22,6 +22,9 @@ public final class SwerveTuning {
 
     // Absolute-encoder forward alignment performed during INIT. Error is degrees.
     public static volatile double ALIGNMENT_P = 0.005;
+    // Overcome static friction near the 2-degree settling boundary without
+    // increasing the command at larger errors beyond ALIGNMENT_MAX_COMMAND.
+    public static volatile double ALIGNMENT_MIN_COMMAND = 0.03;
     public static volatile double ALIGNMENT_MAX_COMMAND = 0.20;
 
     public static void validate() {
@@ -34,7 +37,11 @@ public final class SwerveTuning {
         requireRange("STEERING_MAX_COMMAND", STEERING_MAX_COMMAND, 0.0, 1.0);
         requireNonnegative("STEERING_SLEW_RATE", STEERING_SLEW_RATE);
         requireNonnegative("ALIGNMENT_P", ALIGNMENT_P);
+        requireRange("ALIGNMENT_MIN_COMMAND", ALIGNMENT_MIN_COMMAND, 0.0, 1.0);
         requireRange("ALIGNMENT_MAX_COMMAND", ALIGNMENT_MAX_COMMAND, 0.0, 1.0);
+        if (ALIGNMENT_MIN_COMMAND > ALIGNMENT_MAX_COMMAND) {
+            throw new IllegalArgumentException("ALIGNMENT_MIN_COMMAND must not exceed ALIGNMENT_MAX_COMMAND");
+        }
     }
 
     private static void requireNonnegative(String name, double value) {

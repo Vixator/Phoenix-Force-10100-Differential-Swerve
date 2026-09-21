@@ -144,9 +144,10 @@ The `SwerveTuning` panel contains all active closed-loop drivetrain settings:
 | `STEERING_MAX_COMMAND` | `0.20` | Maximum differential steering command |
 | `STEERING_SLEW_RATE` | `2.0` | Maximum steering-command change per second |
 | `ALIGNMENT_P` | `0.005` | INIT absolute-alignment proportional gain, using degrees |
+| `ALIGNMENT_MIN_COMMAND` | `0.03` | Minimum INIT alignment command outside the 2° settling window, to overcome static friction |
 | `ALIGNMENT_MAX_COMMAND` | `0.20` | Maximum INIT alignment command |
 
-Dashboard edits change live in-memory values only. Record successful gains and update the defaults in [`SwerveTuning.java`](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/SwerveTuning.java) before rebuilding; do not assume browser edits will survive an app restart or redeployment. Values are validated as finite and nonnegative, command limits must be in `0..1`, and an invalid value stops the OpMode. Tune with the robot raised initially, keep clear during INIT alignment, and change one control layer at a time: motor velocity PIDF first, runtime steering PD second, then INIT alignment P.
+Dashboard edits change live in-memory values only. Record successful gains and update the defaults in [`SwerveTuning.java`](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/SwerveTuning.java) before rebuilding; do not assume browser edits will survive an app restart or redeployment. Values are validated as finite and nonnegative, command limits must be in `0..1`, the minimum cannot exceed the maximum, and an invalid value stops the OpMode. Tune with the robot raised initially, keep clear during INIT alignment, and change one control layer at a time: motor velocity PIDF first, runtime steering PD second, then INIT alignment P.
 
 The no-load wheel-speed estimate is not a measured loaded limit. Stick deadbands and kinematic limits remain source constants because they are not PIDF controller settings.
 

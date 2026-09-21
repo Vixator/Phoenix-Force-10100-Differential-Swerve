@@ -79,8 +79,11 @@ public final class PodAlignmentController {
             // The confirmed motor wiring makes positive steering command rotate CCW,
             // while positive analog error requires a CW correction.
             SwerveTuning.validate();
-            command = clamp(DifferentialSwervePodController.motorSteeringForClockwise(
-                            lastErrorDegrees * SwerveTuning.ALIGNMENT_P),
+            double proportionalCommand = lastErrorDegrees * SwerveTuning.ALIGNMENT_P;
+            double minimumCommand = Math.copySign(SwerveTuning.ALIGNMENT_MIN_COMMAND, proportionalCommand);
+            double requestedCommand = Math.abs(proportionalCommand) < SwerveTuning.ALIGNMENT_MIN_COMMAND
+                    ? minimumCommand : proportionalCommand;
+            command = clamp(DifferentialSwervePodController.motorSteeringForClockwise(requestedCommand),
                     -SwerveTuning.ALIGNMENT_MAX_COMMAND, SwerveTuning.ALIGNMENT_MAX_COMMAND);
         }
     }

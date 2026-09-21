@@ -56,23 +56,23 @@ Calibration is enabled. Complete the powered commissioning and tuning tasks belo
 - [x] Confirm both quadrature channels are on the same Expansion Hub.
 - [x] Confirm the quadrature hub is separate from the Control Hub carrying the four drive motors.
 - [x] Confirm no motor is required to be attached to those Expansion Hub motor channels.
-- [ ] Confirm the encoder connectors and strain relief cannot contact moving gears.
+- [x] Confirm the encoder connectors and strain relief cannot contact moving gears.
 
 ### A3. Pod analog wiring
 
 - [x] Confirm one joiner cable is connected to the Control Hub physical analog connector labeled `0-1`.
 - [x] Confirm the left analog signal is channel 0 and named `absencleft`.
 - [x] Confirm the right analog signal is channel 1 and named `absencright`.
-- [ ] Move only the left pod and confirm only `absencleft` changes.
-- [ ] Move only the right pod and confirm only `absencright` changes.
-- [ ] Confirm the two signals are not electrically tied together.
-- [ ] Record connection information shown by the diagnostic tools:
+- [x] Move only the left pod and confirm only `absencleft` changes.
+- [x] Move only the right pod and confirm only `absencright` changes.
+- [x] Confirm the two signals are not electrically tied together.
+- [x] Record connection information shown by the diagnostic tools:
 
 ```text
-Analog joiner/cable notes:
-Left analog connection:
-Right analog connection:
-Quadrature hub connection:
+Analog joiner/cable notes: verified
+Left analog connection: verified
+Right analog connection: verified
+Quadrature hub connection: verified
 ```
 
 ## B. Mechanical configuration
@@ -100,23 +100,23 @@ Right motor: upper differential path
 
 ### B2. Geometry
 
-- [ ] Measure and record wheel diameter:
+- [x] Measure and record wheel diameter:
 
 ```text
-Measured wheel diameter: ______ mm
+Measured wheel diameter: 63.25 mm
 Code value currently used: 63.25 mm
 ```
 
-- [ ] Measure and record pod wheel-center spacing:
+- [x] Measure and record pod wheel-center spacing:
 
 ```text
-Measured pod spacing: ______ mm
-Code value currently used: 362.96 mm
+Measured pod spacing: 359.5 mm
+Code value currently used: 359.5 mm
 ```
 
-- [ ] Confirm both pods are centered at the documented left/right locations.
-- [ ] Confirm the installed wheel/tread type and document any difference from the BOM.
-- [ ] Confirm the wheel does not slip on its 8 mm REX/compatible mounting.
+- [x] Confirm both pods are centered at the documented left/right locations.
+- [x] Confirm the installed wheel/tread type and document any difference from the BOM. Installed tread: 40A belt tires from Melonbotics.
+- [x] Confirm the wheel does not slip on its 8 mm REX/compatible mounting. Slip occurs only when pushing against an immovable object; additional robot weight is expected to mitigate it.
 
 ## C. Motor direction and differential behavior
 
@@ -242,7 +242,7 @@ Left CW 90° signed count delta: ______ counts
 Left CW 360° signed count delta: ______ counts
 ```
 
-- [x] Confirm magnitude is approximately 4096 raw counts; record the precise value below.
+- [ ] Confirm magnitude is approximately 4096 raw counts by physical full-revolution measurement; current software assumes the theoretical 4096-count scale.
 - [x] Record the quadrature direction result:
 
 ```text
@@ -267,7 +267,7 @@ Right CW 90° signed count delta: ______ counts
 Right CW 360° signed count delta: ______ counts
 ```
 
-- [x] Confirm magnitude is approximately 4096 raw counts; record the precise value below.
+- [ ] Confirm magnitude is approximately 4096 raw counts by physical full-revolution measurement; current software assumes the theoretical 4096-count scale.
 - [x] Record the quadrature direction result:
 
 ```text
@@ -343,7 +343,7 @@ Before setting the final flag:
 - [ ] Both forward values are finite and in the range 0° through less than 360°.
 - [x] Both analog signs are physically confirmed as `-1`; both voltages decrease clockwise.
 - [x] Both quadrature signs are confirmed as `+1` because clockwise rotation increased counts.
-- [x] Both full-revolution magnitudes are accepted as approximately 4096 raw counts using the specified power-of-two scale.
+- [ ] Both full-revolution magnitudes are physically confirmed as approximately 4096 raw counts using the specified power-of-two scale; current software uses the theoretical value without a pod-rotation measurement.
 - [ ] Values were independently reviewed by another person.
 - [ ] `README.md`, `hardware.md`, and this task file contain the same accepted values.
 
@@ -370,6 +370,7 @@ With calibration entered:
 ```text
 Left startup error: ______ °
 Right startup error: ______ °
+Observed issue: one pod sometimes remains at approximately 2–2.1° and never stays below the 2° settling threshold before timeout; retrying or manually repositioning the pods can succeed.
 ```
 
 ## I. Low-speed powered drivetrain test
@@ -468,10 +469,10 @@ Left analog sign:             -1
 Right analog sign:            -1
 Left quadrature sign:         +1
 Right quadrature sign:        +1
-Left full-revolution counts:  approximately 4096
-Right full-revolution counts: approximately 4096
+Left full-revolution counts:  assumed 4096 (theoretical; not physically measured)
+Right full-revolution counts: assumed 4096 (theoretical; not physically measured)
 Measured wheel diameter:      ______ mm
-Measured pod spacing:         ______ mm
+Measured pod spacing:         359.5 mm
 Final steering KP:             ______
 Final steering KD:             ______
 Final motor PIDF:              ______

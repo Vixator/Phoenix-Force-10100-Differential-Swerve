@@ -66,7 +66,7 @@ Calibration and tracking are shared by the drive and encoder diagnostics through
 
 The right module is rotated 180 degrees, **not mirrored**. Its independent forward reference absorbs that mounting rotation: do not add another 180 degrees or negate right feedback just because it is rotated. The analog signs are confirmed as `-1` for both pods because both raw voltages decrease during clockwise rotation. Both quadrature signs are confirmed as `+1` because clockwise rotation increased both raw counts. The accepted software scale is 4096 counts per revolution. Both pods remain centered at the existing left/right positions, so the kinematics and motor mixing are unchanged. Combined pod steering direction has been confirmed; powered wheel-drive direction and loaded behavior remain commissioning tasks.
 
-Once calibrated, the drive obtains fresh hub snapshots **during INIT** and automatically steers both pods to their independent analog forward references. Alignment uses proportional steering capped at 0.20 command, requires 100 ms continuously inside a 2° target window, and times out after 5 seconds. Either pod failing stops both. READY indicates completion; motors wait at zero velocity until Start. An early Start waits for alignment to finish. At Start, a fresh validated snapshot supplies quadrature baselines and residual analog angles. Both pods must still be within tolerance; if moved while waiting, reinitialize. **Pods move on INIT; keep clear before pressing INIT.**
+Once calibrated, the drive obtains fresh hub snapshots **during INIT** and automatically steers both pods to their independent analog forward references. Alignment uses proportional steering capped at 0.20 command, with a 0.03 minimum command outside the 2° settling window to overcome static friction near the target. It requires 100 ms continuously inside the 2° target window and times out after 5 seconds. Either pod failing stops both. READY indicates completion; motors wait at zero velocity until Start. An early Start waits for alignment to finish. At Start, a fresh validated snapshot supplies quadrature baselines and residual analog angles. Both pods must still be within tolerance; if moved while waiting, reinitialize. **Pods move on INIT; keep clear before pressing INIT.**
 
 ```text
 initial angle = wrap((raw analog degrees - pod forward degrees) * analog sign)
@@ -92,7 +92,7 @@ A software forward offset changes reported robot-relative zero; it **cannot move
 | Parameter | Confirmed Value |
 | --- | --- |
 | Wheel diameter | 63.25 mm |
-| Pod wheel-center spacing | 362.96 mm |
+| Pod wheel-center spacing | 359.5 mm |
 | Pod locations | Directly left/right of robot center |
 | Initial bevel pair, each motor | 1:1 |
 | Spur stage | 16-tooth driving 54-tooth |
@@ -134,7 +134,7 @@ These are current source defaults, **not validated gains or safe operating limit
 | `MAX_DRIVE_POWER` | 1.0 | Wheel-drive command scale |
 | Pod `DEFAULT_MAX_STEER` | 0.20 | Steering component limit, matching startup cap |
 | `DRIVE_DEADBAND`, `TURN_DEADBAND` | 0.05 | Stick deadbands |
-| Input `MAX_TURN_RATE` | `2 * MAX_WHEEL_SPEED_METERS_PER_SECOND / TRACK_WIDTH_METERS`, about 16.36 rad/s | Theoretical full-stick pure rotation scale: opposite wheels at full speed, not a measured loaded chassis rate |
+| Input `MAX_TURN_RATE` | `2 * MAX_WHEEL_SPEED_METERS_PER_SECOND / TRACK_WIDTH_METERS`, about 16.52 rad/s | Theoretical full-stick pure rotation scale: opposite wheels at full speed, not a measured loaded chassis rate |
 | Pod `DEFAULT_SLEW_RATE` | 2.0/s | Normalized steering-command change limit; nonpositive disables it |
 | `VEL_PID_KP`, `VEL_PID_KI`, `VEL_PID_KD` | 15.0, 0.5, 0.5 | REV motor velocity controller gains |
 | `VEL_PID_KF` | `32767 / 2781.0833`, about 11.782 | Preliminary REV velocity feedforward, not volts/RPM |
