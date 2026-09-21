@@ -56,7 +56,7 @@ Calibration is enabled. Complete the powered commissioning and tuning tasks belo
 - [x] Confirm both quadrature channels are on the same Expansion Hub.
 - [x] Confirm the quadrature hub is separate from the Control Hub carrying the four drive motors.
 - [x] Confirm no motor is required to be attached to those Expansion Hub motor channels.
-- [x] Confirm the encoder connectors and strain relief cannot contact moving gears.
+- [x] Confirm the encoder connectors and strain relief cannot contact moving gears. Sensitive positioning wires have ferrite shields and are secured in their ports.
 
 ### A3. Pod analog wiring
 
@@ -135,8 +135,10 @@ Use the appropriate motor diagnostic procedure and verify that each motor’s ph
 
 - [x] Confirm all four programmed software directions remain `FORWARD`.
 - [x] Record individual motor pod-response directions below.
-- [ ] Confirm equal positive commands propel the left pod in its directed robot-forward wheel-travel direction.
-- [ ] Confirm equal positive commands propel the right pod in its directed robot-forward wheel-travel direction.
+- [x] Confirm equal positive commands propel the left pod in its directed robot-forward wheel-travel direction.
+- [x] Confirm equal positive commands propel the right pod in its directed robot-forward wheel-travel direction.
+
+With both pods facing robot-forward according to their analog-zero references, powering both wheels propels the robot forward.
 - [x] Confirm the corrected driver right-stick input steers each pod clockwise/right.
 - [x] Confirm right-stick left steers each pod counterclockwise/left.
 - [ ] Confirm the right pod’s 180° mounting does not require an additional software mirror or 180° correction.
@@ -239,10 +241,10 @@ Left CW 90° signed count delta: ______ counts
 - [ ] Record the signed full-revolution count:
 
 ```text
-Left CW 360° signed count delta: ______ counts
+Left CW 360° signed count delta: approximately 4100 counts
 ```
 
-- [ ] Confirm magnitude is approximately 4096 raw counts by physical full-revolution measurement; current software assumes the theoretical 4096-count scale.
+- [x] Confirm magnitude is approximately 4096 raw counts by physical full-revolution measurement; measured approximately 4100 counts, consistent with a 1024 CPR encoder using 4x quadrature decoding.
 - [x] Record the quadrature direction result:
 
 ```text
@@ -264,10 +266,10 @@ Right CW 90° signed count delta: ______ counts
 - [ ] Record the signed full-revolution count:
 
 ```text
-Right CW 360° signed count delta: ______ counts
+Right CW 360° signed count delta: approximately 4100 counts
 ```
 
-- [ ] Confirm magnitude is approximately 4096 raw counts by physical full-revolution measurement; current software assumes the theoretical 4096-count scale.
+- [x] Confirm magnitude is approximately 4096 raw counts by physical full-revolution measurement; measured approximately 4100 counts, consistent with a 1024 CPR encoder using 4x quadrature decoding.
 - [x] Record the quadrature direction result:
 
 ```text
@@ -343,7 +345,7 @@ Before setting the final flag:
 - [ ] Both forward values are finite and in the range 0° through less than 360°.
 - [x] Both analog signs are physically confirmed as `-1`; both voltages decrease clockwise.
 - [x] Both quadrature signs are confirmed as `+1` because clockwise rotation increased counts.
-- [ ] Both full-revolution magnitudes are physically confirmed as approximately 4096 raw counts using the specified power-of-two scale; current software uses the theoretical value without a pod-rotation measurement.
+- [x] Both full-revolution magnitudes are physically confirmed as approximately 4096 raw counts using the specified power-of-two scale; both measured approximately 4100 counts, consistent with the Melonbotics 1024 CPR encoder and 4x quadrature decoding.
 - [ ] Values were independently reviewed by another person.
 - [ ] `README.md`, `hardware.md`, and this task file contain the same accepted values.
 
@@ -388,23 +390,23 @@ For the updated build, verify:
 - [ ] With pods forward, forward/reverse input rolls the wheels while holding pod angle. Reverse should not require a 180° pod turn.
 - [ ] Right-stick right requests clockwise chassis rotation: left wheel forward, right wheel backward. This differs from the diagnostic's right stick, which directly steers a selected pod.
 
-Runtime steering is capped at 0.20 with Kp 0.5, Kd 0.01, and slew rate 2.0/s. Telemetry shows each pod's angle/target/error and both motor velocity targets. A 3° reversal hysteresis band prevents noisy wheel-direction switching near 90°. Software regression tests and the debug build pass; these physical checks remain unverified until run on the robot.
+Runtime steering is capped at 0.20 with Kp 0.5, Kd 0.01, and slew rate 2.0/s. Telemetry shows each pod's angle/target/error and both motor velocity targets. A 3° reversal hysteresis band prevents noisy wheel-direction switching near 90°. Low-speed translation, strafing, rotation, combined motion, and stop behavior have been executed and confirmed working on the robot; fault handling and loaded tuning remain pending.
 
-- [ ] Forward translation.
-- [ ] Reverse translation.
-- [ ] Robot-right strafe.
-- [ ] Robot-left strafe.
-- [ ] Clockwise chassis rotation.
-- [ ] Counterclockwise chassis rotation.
-- [ ] With translation centered and pods aligned, full right-stick rotation requests full opposite wheel speeds using both motors per pod; verify motor-target telemetry is approximately +2781/+2781 on the left and -2781/-2781 on the right for clockwise rotation. Reverse for counterclockwise.
-- [ ] Translation plus clockwise rotation.
-- [ ] Translation plus counterclockwise rotation.
-- [ ] Release right stick and confirm zero requested rotation.
+- [x] Forward translation.
+- [x] Reverse translation.
+- [x] Robot-right strafe.
+- [x] Robot-left strafe.
+- [x] Clockwise chassis rotation.
+- [x] Counterclockwise chassis rotation.
+- [x] With translation centered and pods aligned, full right-stick rotation requests full opposite wheel speeds using both motors per pod; verify motor-target telemetry is approximately +2781/+2781 on the left and -2781/-2781 on the right for clockwise rotation. Reverse for counterclockwise.
+- [x] Translation plus clockwise rotation.
+- [x] Translation plus counterclockwise rotation.
+- [x] Release right stick and confirm zero requested rotation.
 - [ ] Confirm pod targets are retained when requested pod velocity is zero.
 - [ ] Confirm shortest-path steering reverses wheel direction correctly near 90°.
 - [ ] Confirm analog wraparound does not cause an unexpected steering jump.
 - [ ] Confirm motor velocities remain within the configured limit.
-- [ ] Confirm stop behavior sets all four motor velocities to zero.
+- [x] Confirm stop behavior sets all four motor velocities to zero.
 - [ ] Confirm a transient hub-read failure stops outputs before retrying, reports the recovered-read count, and requires centered sticks before runtime motion resumes.
 - [ ] Confirm persistent hub feedback loss or excessive loop delay displays DRIVE STOPPED, holds zero commands, and requires Stop/reinitialization. Record configured hub name, connection, and reason from telemetry/logs.
 - [ ] Confirm recovered analog/quadrature disagreement prevents resuming after a hub reset.
@@ -452,7 +454,7 @@ The current drivetrain is ready for normal operation only when all are true:
 - [x] Calibration constants are entered and reviewed.
 - [x] `CALIBRATION_VERIFIED` is true.
 - [ ] Startup alignment succeeds repeatedly.
-- [ ] Low-speed drive tests pass.
+- [x] Low-speed drive tests pass.
 - [ ] Stop and fault behavior pass.
 - [ ] Loaded speed, thermal, current, and tuning checks are documented.
 
@@ -469,9 +471,9 @@ Left analog sign:             -1
 Right analog sign:            -1
 Left quadrature sign:         +1
 Right quadrature sign:        +1
-Left full-revolution counts:  assumed 4096 (theoretical; not physically measured)
-Right full-revolution counts: assumed 4096 (theoretical; not physically measured)
-Measured wheel diameter:      ______ mm
+Left full-revolution counts:  approximately 4100 measured; 4096 configured
+Right full-revolution counts: approximately 4100 measured; 4096 configured
+Measured wheel diameter:      63.25 mm
 Measured pod spacing:         359.5 mm
 Final steering KP:             ______
 Final steering KD:             ______
