@@ -213,7 +213,7 @@ public class SwervePodEncoderTest extends OpMode {
             double expected = SwervePodEncoder.COUNTS_PER_REVOLUTION;
             double error = Math.abs(Math.abs(delta) - expected);
             revolutionActive = false;
-            revolutionResult = String.format("delta %d; abs error %.1f counts", delta, error);
+            revolutionResult = String.format(java.util.Locale.US, "delta %d; abs error %.1f counts", delta, error);
         }
     }
 

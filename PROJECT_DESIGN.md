@@ -14,13 +14,13 @@ This project controls and commissions a two-pod differential-swerve FTC drivetra
 6. The drive shall remain disabled until encoder calibration has been physically measured and verified.
 7. Diagnostics shall be read-only whenever they are intended for wiring or calibration work; motor-assisted alignment actions must be explicit, bounded, and abortable.
 8. Invalid hub feedback shall stop motor commands before bounded retries. Persistent feedback faults shall latch stopped until OpMode restart; recovered runtime feedback requires neutral sticks and consistent pod angles before resuming.
-9. **Each independent robot subsystem or diagnostic function shall be implemented in its own OpMode file.** Do not combine unrelated subsystem tests into one large OpMode. Shared calculations and constants belong in reusable classes; hardware ownership, lifecycle, telemetry, and commands belong in the OpMode for that subsystem.
+9. **Each independent robot subsystem or diagnostic function shall be implemented in its own OpMode file.** Do not combine unrelated subsystem tests into one large OpMode. Shared calculations and constants belong in reusable classes. An OpMode may delegate hardware ownership and lifecycle to a subsystem-scoped owner, provided acquisition/cleanup remain within that OpMode lifetime and unrelated hardware is not initialized.
 
 ## Architecture
 
 ### OpModes
 
-- `DifferentialSwerveTeleOp` owns the powered drivetrain, gamepad interpretation, hub reads, motor commands, pod tracking, and drive telemetry.
+- `DifferentialSwerveTeleOp` owns gamepad interpretation and telemetry and scopes a `DifferentialSwerveRuntime` for hardware acquisition, alignment, feedback, and output cleanup.
 - `SwervePodEncoderTest` owns the combined analog/quadrature encoder commissioning workflow; its normal measurement path is read-only and its Y action is bounded selected-pod alignment.
 - `PodAnalogEncoderTest` owns analog display and bounded selected-pod alignment to the forward reference.
 - `MotorEncoderDriveTest` owns the bounded individual-motor direction and module-response workflow.
@@ -33,7 +33,7 @@ New robot subsystems should follow the same separation. Examples include an inta
 
 `DifferentialSwerveKinematics` converts robot-relative translation and clockwise-positive chassis rotation to pod vectors. `DifferentialSwervePodController` owns shortest-path optimization, PD steering, slew state, alignment scaling, and normalized motor mixing. Its clockwise-to-motor-steering conversion is shared with startup alignment and the individual pod diagnostic.
 
-`SwerveDriverInput` owns radial translation deadband and cubic rotation shaping. The main OpMode handles hardware initialization, bounded alignment, analog-to-quadrature handoff, and the read/calculate/command loop. Encoder angle/rate state is stored only in the trackers. Tuning is compile-time; motor PIDF is configured once in INIT.
+`SwerveDriverInput` owns radial translation deadband and cubic rotation shaping. The shared runtime handles initialization, alignment, analog-to-quadrature handoff, and cycle authorization through a small injectable `Host` boundary. `DifferentialSwerveHardware` implements that boundary with the SDK; `SwerveHubSession` coordinates snapshots and restores cache modes. Encoder state stays in the trackers. `SwerveTuning` provides validated live Dashboard settings; changed motor PIDF values are reapplied during runtime.
 
 This separation keeps the math and alignment safety rules unit-testable and prevents the drive and diagnostics from developing different timeout, clamp, or wrap behavior.
 
@@ -125,15 +125,15 @@ delta angle = delta counts * quadrature sign * 2π / 4096
 
 Analog is not repeatedly used for correction because the analog output wraps at the voltage boundary and can introduce discontinuities during normal steering. Quadrature count differences are calculated as integers before conversion so signed rollover is handled correctly.
 
-The measured top-dead-center forward references are stored independently: left 0.122 V / 13.725° and right 0.258 V / 29.025°. Both analog voltages decrease during clockwise rotation, so both analog signs are `-1`. Both quadrature signs are confirmed as `+1` because clockwise rotation increased both raw counts. Wheel-drive direction and loaded behavior still require powered commissioning. `CALIBRATION_VERIFIED` is true after physical encoder and combined-steering verification; powered drive now proceeds to bounded startup alignment. Powered commissioning and tuning remain separate human tasks.
+The measured top-dead-center forward references are stored independently: left 0.122 V / 13.725° and right 0.258 V / 29.025°. Both analog voltages decrease during clockwise rotation, so both analog signs are `-1`. Both quadrature signs are confirmed as `+1` because clockwise rotation increased both raw counts. Wheel-drive direction and low-speed motion were previously confirmed; the refactored lifecycle requires a physical regression, and loaded behavior remains unverified. `CALIBRATION_VERIFIED` is true after physical encoder and combined-steering verification; powered drive now proceeds to bounded startup alignment. Powered commissioning and tuning remain separate human tasks.
 
 ## Control Decisions
 
-- **Robot-centric control:** avoids requiring an IMU or field heading reference.
+- **Robot-centric TeleOp:** avoids requiring an IMU or field heading reference; Pedro autonomous uses Pinpoint.
 - **Left stick translation:** direction selects the requested robot-relative pod vector; radial deadband prevents small joystick noise.
 - **Right stick X rotation:** requests clockwise-positive chassis rotation about the pod midpoint; cubic shaping provides finer low-input control.
 - **Full-speed pure rotation:** full stick maps to `2 * maxWheelSpeed / trackWidth`, so aligned pods request equal and opposite full wheel speeds using all four motors. Combined motion retains vector normalization and steering headroom. This calculated angular rate is a command scale, not a measured chassis speed.
-- **No heading hold:** releasing the turn stick requests zero chassis rotation rather than an automatic return or heading correction.
+- **No TeleOp heading hold:** releasing the turn stick requests zero chassis rotation rather than an automatic return or heading correction.
 - **Steering priority:** steering commands retain authority when drive and steering compete for the motor-speed limit. Remaining headroom is allocated to wheel drive.
 - **Cosine-squared alignment scaling:** wheel drive is reduced while a pod is misaligned with its requested vector.
 - **Steering slew limiting:** limits abrupt changes in the steering command.
@@ -147,7 +147,7 @@ The measured top-dead-center forward references are stored independently: left 0
 - The drive refuses to start without verified calibration.
 - Invalid analog values, invalid hub bulk reads, or excessive loop delays stop the drive.
 - A failed bulk read commands zero velocity before retrying the entire hub set. `HubSnapshotReader` allows three attempts within 150 ms, with 10 ms pauses. No fake or mixed-attempt data reaches the controllers. The existing 250 ms loop limit still includes recovery time.
-- Recovered runtime reads reset steering output state and require neutral sticks before resuming. Analog/quadrature disagreement above 10° latches a feedback fault, helping catch count resets after hub recovery; this check does not reseed or correct the tracker and cannot detect every reset.
+- Recovered runtime reads reset steering output state. TeleOp requires neutral sticks before resuming; autonomous latches stopped. Analog/quadrature disagreement above 10° latches a feedback fault, helping catch count resets after hub recovery; this check does not reseed or correct the tracker and cannot detect every reset.
 - Persistent feedback faults stay in a stopped telemetry state until Stop/reinitialization. Hub identity and failure details are logged; cleanup attempts every motor stop and cache restoration even if another fails.
 - Shutdown attempts to stop every drive motor, even if one stop operation throws.
 - Hardware names and ports are checked at runtime, including the requirement that pod quadrature inputs are on Expansion Hub channels 0 and 1 and are on a different hub from the drive motors.
@@ -170,7 +170,7 @@ Every new feature must first be assigned to a subsystem. The implementation must
 - One subsystem or diagnostic purpose per OpMode file.
 - No unrelated motor, sensor, or mechanism tests inside `DifferentialSwerveTeleOp`.
 - Shared pure math belongs in a focused helper class with unit tests.
-- Hardware lookup and actuator ownership remain local to the owning subsystem OpMode.
+- Hardware lookup and actuator ownership remain scoped to the owning subsystem OpMode, including its shared runtime/hardware owner.
 - OpModes must have clear names and FTC groups so the Driver Station menu remains understandable.
 - Read-only diagnostics must not call actuator output, direction, mode, target-position, or reset APIs unless that operation is explicitly part of the diagnostic and documented. The alignment hotkeys are the documented exception and are bounded to a selected pod with an abort key and timeout.
 - Changes that combine multiple subsystems into one file require a documented safety or lifecycle reason.
@@ -183,6 +183,40 @@ This requirement is part of the project design, not merely a style preference: s
 - Regression-test startup/runtime polarity agreement, physical damping direction, chassis rotation, shortest-path reversal, target retention, motor limits, and convergence with a simple motor/encoder model.
 - Build the TeamCode debug APK after adding or changing an OpMode.
 - Complete and record the human-run steps in [HUMAN_TASKS.md](HUMAN_TASKS.md).
-- Hardware configuration, separate quadrature hub, differential gear assembly, analog polarity, quadrature polarity, and individual motor responses are physically verified. Combined motor mixing, startup alignment, and loaded drivetrain behavior remain to be tested.
+- Hardware configuration, separate quadrature hub, differential gear assembly, analog polarity, quadrature polarity, and individual motor responses are physically verified. Combined mixing and low-speed motion were previously reported working. Repeat startup/drive/fault checks after the runtime refactor; loaded dynamics remain unverified.
 - Keep powered tests at reduced limits with the robot raised and clear of moving mechanisms.
 - Update this document and `hardware.md` whenever a design assumption changes.
+
+## Pedro 3.0.1 integration architecture
+
+Autonomous code owns one `PedroAutoDrive` for the OpMode lifetime. That owner composes a
+`SafePedroFollower`, `GuardedPinpointLocalizer`, `DifferentialSwerveDrivetrain`, and the
+subsystem-scoped `DifferentialSwerveRuntime`. This is the documented exception to keeping hardware
+lookup directly in an OpMode: the runtime owns only drivetrain devices and exists to make hub
+snapshot, alignment, authorization, and cleanup behavior identical in TeleOp and autonomous.
+OpModes still own construction, user interaction, Start/Stop, and `try/finally` lifetime.
+
+The control sequence is one validated Lynx snapshot, one guarded Pinpoint update, one Pedro
+calculation, then a two-pod prepare/validate/commit. Nonzero pod output is rejected without a fresh
+runtime authorization. A runtime hub recovery pauses TeleOp until neutral but permanently cancels
+autonomous. Stop, localization errors, stale samples, nonfinite commands, and partial output failures
+all attempt zero velocity on every drive motor and retain BRAKE.
+
+The shared coordinate contract is X forward, Y left, and positive yaw counterclockwise. Pinpoint
+reports field-frame X/Y in inches. Pedro strafe is negated exactly once at the existing
+forward/right kinematics boundary; Pedro normalized CCW turn is converted exactly once to the
+existing CW rad/s convention. Pod encoder feedback remains clockwise-positive. No X-lock or active
+FLOAT transition is part of normal operation.
+
+`PinpointSettings.DIRECTIONS_VERIFIED`, its heading convention, and
+`PedroFollowerConfig.MODEL_VERIFIED` are deliberate arming gates. Static pod, Pinpoint, manual-drive,
+and characterization work is staged before enabling the disabled line, curve, heading, and template
+OpModes. Field observations—not theoretical free speed—must populate the Foresight model.
+
+## Review and verification record
+
+[INTEGRATION_STATUS.md](INTEGRATION_STATUS.md) records the current software checks and remaining physical gates. Tests exercise the actual runtime state machine using an injected host, real pod/controller objects, fake motor boundaries, and a monotonic clock. This covers INIT/Start drift, output authorization, partial delivery, recovery, delayed reads, live caps, fault latching, and cleanup without relying on Android stub methods returning zero.
+
+`DifferentialPod` validates finite combined motor targets, clears stale prepared output, checks phase/Stop/sample age before each write, and stops/latches after direct-call failures. Autonomous and static-angle tests retain the 0.35 combined cap even after live tuning changes; the TeleOp retains its full-scale profile. Cleanup attempts all actions and preserves secondary exceptions. Fault evidence survives close; lifecycle owners cannot be reused.
+
+Pedro 3.0.1 Foresight finishes paths at the parametric endpoint. The configured endpoint timeout/tolerances alone do not enforce FOLLOW accuracy. `PedroPathResult` independently evaluates pose and velocity, and path diagnostics latch failed acceptance. A no-progress check observes path completion, endpoint distance, and heading improvement so a curve moving temporarily away from its endpoint is not mistaken for a stalled robot. Whole-path deadlines remain independent of library state.

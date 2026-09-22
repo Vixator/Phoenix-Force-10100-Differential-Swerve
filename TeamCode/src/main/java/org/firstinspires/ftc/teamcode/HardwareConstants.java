@@ -39,6 +39,8 @@ public final class HardwareConstants {
     public static final double WHEEL_DIAMETER_METERS = 0.06325; // 63.25 mm
     public static final double WHEEL_CIRCUMFERENCE_METERS = Math.PI * WHEEL_DIAMETER_METERS;
     public static final double TRACK_WIDTH_METERS = 0.3595;
+    public static final double TRACK_WIDTH_INCHES = TRACK_WIDTH_METERS / 0.0254;
+    public static final double POD_CENTER_OFFSET_INCHES = TRACK_WIDTH_INCHES / 2.0;
     public static final double MAX_WHEEL_SPEED_METERS_PER_SECOND =
             MOTOR_FREE_SPEED_RPM / 60.0 * TOTAL_DRIVE_RATIO * WHEEL_CIRCUMFERENCE_METERS;
     

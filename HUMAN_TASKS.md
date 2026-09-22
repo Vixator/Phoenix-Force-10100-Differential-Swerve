@@ -19,7 +19,7 @@ LEFT_FORWARD_DEGREES = 13.725   // 0.122 V top-dead-center
 RIGHT_FORWARD_DEGREES = 29.025  // 0.258 V top-dead-center
 ```
 
-Calibration is enabled. Complete the powered commissioning and tuning tasks below before normal operation.
+Pod calibration and the previously reported low-speed drive tests are accepted. The shared-runtime integration has since changed; repeat powered regressions before normal operation. Pinpoint frame verification is accepted for the commissioned robot; the measured Foresight model remains unverified. Desktop evidence is tracked separately in [INTEGRATION_STATUS.md](INTEGRATION_STATUS.md).
 
 ## Safety rules
 
@@ -398,7 +398,7 @@ Runtime steering is capped at 0.20 with Kp 0.5, Kd 0.01, and slew rate 2.0/s. Te
 - [x] Robot-left strafe.
 - [x] Clockwise chassis rotation.
 - [x] Counterclockwise chassis rotation.
-- [x] With translation centered and pods aligned, full right-stick rotation requests full opposite wheel speeds using both motors per pod; verify motor-target telemetry is approximately +2781/+2781 on the left and -2781/-2781 on the right for clockwise rotation. Reverse for counterclockwise.
+- [x] With translation centered and pods aligned, full right-stick rotation requests full opposite wheel speeds using both motors per pod; logical wheel speeds are opposite. With the right pod negate-and-swap mapping, software predicts approximately +2781 ticks/s on all four hardware motors for clockwise rotation and negative on all four for counterclockwise. Recheck these hardware telemetry signs after the refactor; the earlier opposite-right-motor documentation described logical rather than hardware commands.
 - [x] Translation plus clockwise rotation.
 - [x] Translation plus counterclockwise rotation.
 - [x] Release right stick and confirm zero requested rotation.
@@ -483,3 +483,67 @@ Final safe steering limit:     ______
 Commissioned by:              ______
 Commission date:               ______
 ```
+
+## Pedro integration commissioning gates
+
+Do these in order. Do not enable the disabled path OpModes or set a verification flag from an
+assumption.
+
+- [x] Run **Pinpoint Encoder Direction Test** without drivetrain power. Raw forward-X and left-Y
+  signs are accepted for the commissioned hardware.
+- [x] Run **Pinpoint Pose Test** with the labeled candidate directions. READY, forward +X, left +Y,
+  CCW-positive heading/rate, and field-frame translation are accepted.
+- [x] Measure 24 in forward and left and rotation behavior. Results are accepted for the current
+  robot configuration and recorded in `hardware.md`; `PinpointSettings` is commissioned.
+- [ ] Run **Pedro Pod Angle Test** one selected pod at a time at 0°, ±45°, ±90°, and wrap-adjacent
+  ±179°. Confirm no positive feedback, reversal chatter, nonselected hardware access, or FLOAT.
+- [ ] Re-run the established reduced-limit TeleOp forward/reverse/strafe/turn/combined/release/Stop
+  checks after the shared-runtime refactor.
+- [ ] Run **Pedro Manual Drive Test** robot-centrically at headings 0 and +90°. Confirm release sends
+  true zero and BRAKE remains active.
+- [ ] Run **Pedro Drive Characterization** in both directions. Record loaded X/Y speed, BRAKE
+  deceleration/displacement, rotation response, battery voltage, and the `0.15` drive scale.
+- [ ] Fit the linear/quadratic translation and heading braking models; enter finite measured values
+  in `PedroFollowerConfig`, verify requested 6 in/s² does not exceed natural deceleration, and only
+  then set `MODEL_VERIFIED`.
+- [ ] Enable and run the 12 in line tests at 8 in/s or lower, then 24 in. Record endpoint error,
+  completion reason, deadline behavior, saturation, and zero/BRAKE finish.
+- [ ] Enable broad constant-heading curves, reverse traversal, then ±45°/±90° heading changes and
+  wrap crossings. Change only one speed, acceleration, or gain variable at a time.
+- [ ] Inject/read-test recovered and persistent hub failures, bad Pinpoint status, nonfinite state,
+  >250 ms loops, partial output failure, and Stop in INIT/FOLLOW/HOLD. Confirm all motors are stopped
+  and cache modes restore.
+
+### Characterization record
+
+```text
+Drive scale:                         0.15
+Battery voltage(s):                  ______
+Max loaded forward velocity (in/s):  ______
+Max loaded reverse velocity (in/s):  ______
+Max loaded left velocity (in/s):     ______
+Max loaded right velocity (in/s):    ______
+Natural forward deceleration:        ______
+Natural strafe deceleration:         ______
+Forward linear/quadratic brake fit:  ______ / ______
+Strafe linear/quadratic brake fit:   ______ / ______
+Heading linear/quadratic brake fit:  ______ / ______
+Recorded by/date:                    ______
+```
+
+### Collecting characterization data
+
+Use one commanded axis at a time, in both directions, at several speeds and battery levels. Hold until steady speed, release every control for true zero/BRAKE, and keep recording until stopped. `Pedro Drive Characterization` produces timestamped signed CSV under `PedroCharacterization`, with body X/Y velocity in in/s, angular rate in rad/s, field pose, input commands, battery volts, and drive scale. Capture with `adb logcat -v raw -s PedroCharacterization:I '*:S'` or export the Robot Controller log. Keep CSV records with the commissioning observations.
+
+For each release, use the last driven sample as the initial body velocity, then measure displacement until rest. Rotate field displacement into the release-time robot frame; unwrap heading changes. Fit forward and strafe displacement with `d = linear * v + quadratic * v * abs(v)` separately, and the equivalent heading model in radians. Use multiple samples, inspect residuals, and verify both directions. Estimate natural deceleration from the released velocity trace using zero commanded velocity and BRAKE. Enter positive diagonal coefficients, measured speed limits, and natural deceleration in `PedroFollowerConfig`; record `CHARACTERIZED_DRIVE_SCALE` as an independent measured setting. It must equal the active autonomous scale. Do not use the test-only synthetic model as a hardware fit.
+
+### Refactor regression and endpoint acceptance
+
+- [ ] Recheck graphable motor target/measured/count and pod angle/rate/analog series on Dashboard.
+- [ ] Recheck all four hardware target signs during pure clockwise/CCW rotation with pods forward.
+- [ ] Confirm completely centered controls command true zero; no active steering remains at zero chassis demand.
+- [ ] Verify the selected-pod diagnostic catches delayed/failed feedback and stops before allowing another command; the other pod motors and Pinpoint remain untouched.
+- [ ] Record `Completion reason` and actual terminal pose/velocity for every path run. `END_WITHIN_TOLERANCE` requires <=0.5 in, <=3 degrees, <=1 in/s, and <=5 degrees/s. `END_OUTSIDE_TOLERANCE` is a failed run even if Pedro stopped FOLLOW normally.
+- [ ] If repeated parametric completion misses heading/velocity tolerances, tune the trajectory/model and heading interpolation before enabling competition autonomous. Pedro 3.0.1's endpoint flags alone do not certify pose accuracy.
+
+Software tests and successful builds do not mark any of these physical checks complete.

@@ -2,7 +2,47 @@
 
 This project implements a two-pod **differential swerve** drivetrain for an FTC robot. Each pod uses two motors whose combined motion controls wheel speed and pod azimuth. Driving and steering share the available motor-speed capacity.
 
-The current drive mode is **robot-centric**. It uses four drive motors and two dedicated pod encoders, with no Pinpoint, IMU, odometry, field-centric transform, or chassis heading hold. See [hardware.md](hardware.md) for wiring, specifications, calibration, and tuning notes, [PROJECT_DESIGN.md](PROJECT_DESIGN.md) for architecture and design decisions, and [HUMAN_TASKS.md](HUMAN_TASKS.md) for every physical calibration and commissioning task.
+The main TeleOp is **robot-centric** and uses four drive motors and two dedicated pod encoders. Pedro commissioning and autonomous OpModes additionally use a guarded Pinpoint localizer; TeleOp does not require Pinpoint. See [hardware.md](hardware.md) for wiring, specifications, calibration, and tuning notes, [PROJECT_DESIGN.md](PROJECT_DESIGN.md) for architecture and design decisions, and [HUMAN_TASKS.md](HUMAN_TASKS.md) for every physical calibration and commissioning task.
+
+## Pedro integration and verification
+
+The robot pins `com.pedropathing:revhub:3.0.1` and FTC SDK 12.0.0. Pedro commands use forward +X, left +Y, and CCW-positive yaw; positions are inches and headings are radians. `DifferentialSwerveRuntime` owns the shared lifecycle, `DifferentialPod` preserves the calibrated control/motor mapping, and `SafePedroFollower` stops immediately on faults or Stop. Every follower update validates fresh hub feedback, reads Pinpoint once, and checks authorization before each motor write. Autonomous hub recovery cancels the run; TeleOp retains its neutral-stick recovery interlock.
+
+Run `./gradlew.bat :TeamCode:testDebugUnitTest :TeamCode:assembleDebug`. For tests against the neighboring library's actual artifacts and then published Pedro, use `../PedroSwerving/scripts/verify-projects.ps1`. See [INTEGRATION_STATUS.md](INTEGRATION_STATUS.md) for commands, source responsibilities, tested behavior, and limitations.
+
+Pinpoint direction/heading verification and the measured Foresight model remain closed gates. `PedroLineTest`, `PedroCurveTest`, `PedroHeadingTest`, and `PedroAutoTemplate` retain `@Disabled`. Follow [HUMAN_TASKS.md](HUMAN_TASKS.md) in order; successful builds do not authorize changing measured-value flags.
+
+The compiled [PedroAutoTemplate](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/PedroAutoTemplate.java) shows the complete lifecycle:
+
+```java
+PedroAutoDrive drive = new PedroAutoDrive(this);
+try {
+    if (!drive.initialize()) return;
+    Follower follower = drive.follower();
+    Pose start = new Pose(0, 0, 0);
+    Path path = Paths.line(start, new Pose(12, 0, 0)).constant(start.heading());
+    follower.holdEnd.set(false);
+    waitForStart();
+    if (isStopRequested()) return;
+    drive.enableForesight(); // Validate measured model while disarmed.
+    drive.arm(start);
+    follower.follow(path);
+    long deadline = System.nanoTime() + 10_000_000_000L;
+    while (opModeIsActive() && follower.following() && !drive.hasFault()) {
+        if (System.nanoTime() >= deadline) { drive.abort("Path deadline"); break; }
+        follower.update();
+        idle();
+    }
+    follower.stop();
+    // Also assess terminal pose/velocity: parametric completion alone is not accuracy.
+} finally {
+    drive.close();
+}
+```
+
+The path diagnostics additionally detect lack of progress and report `END_WITHIN_TOLERANCE`, `END_OUTSIDE_TOLERANCE`, `INVALID_TERMINAL_FEEDBACK`, `OPERATOR_STOP`, or `FAULT`. Endpoint acceptance checks 0.5 in, 3 degrees, 1 in/s, and 5 degrees/s independently of Foresight's completion flag. Out-of-tolerance/invalid completion latches a fault.
+
+`Pedro Drive Characterization` logs signed timestamped CSV samples under the `PedroCharacterization` Robot Controller log tag at up to 50 Hz, including body velocity, pose, commands, drive scale, and battery voltage. Its telemetry runs at 10 Hz. See the collection and fitting procedure in [HUMAN_TASKS.md](HUMAN_TASKS.md).
 
 ## Hardware Configuration
 
@@ -45,10 +85,10 @@ Select **Differential Swerve TeleOp** on the Driver Station.
 
 ### Startup
 
-1. Complete the physical calibration and verification checklist in [HUMAN_TASKS.md](HUMAN_TASKS.md) first. The measured top-dead-center references are now recorded as `LEFT_FORWARD_DEGREES = 13.725` (0.122 V) and `RIGHT_FORWARD_DEGREES = 29.025` (0.258 V). `CALIBRATION_VERIFIED` is now `true`; hardware configuration, encoder signs/scale, individual motor behavior, and combined pod steering direction have been verified. Powered drivetrain commissioning and tuning remain.
+1. Complete the physical calibration and verification checklist in [HUMAN_TASKS.md](HUMAN_TASKS.md) first. The measured top-dead-center references are now recorded as `LEFT_FORWARD_DEGREES = 13.725` (0.122 V) and `RIGHT_FORWARD_DEGREES = 29.025` (0.258 V). `CALIBRATION_VERIFIED` is now `true`; hardware configuration, encoder signs/scale, individual motor behavior, and combined pod steering direction have been verified. Previously reported low-speed driving passed; repeat those checks after the shared-runtime refactor, then finish fault testing and loaded tuning.
 2. Press **INIT** with the wheels securely raised for commissioning. **The pods move during INIT:** the drive immediately steers both to their independent analog forward references.
 3. Alignment is capped at 0.20 command and must remain inside a 2° target window for 100 ms before completion, within a 5-second timeout. Either pod failing stops both. Wait for **READY — pods aligned. Press Start to drive.** Motors receive zero velocity while waiting. An early Start cannot bypass unfinished alignment.
-4. Press **Start** to drive. A fresh snapshot verifies the pods are still aligned and seeds quadrature with the measured residual angle. Moving a pod away from forward while waiting requires reinitialization. Runtime then uses quadrature only. At zero requested pod velocity, the previous pod azimuth target is retained rather than forced forward.
+4. Press **Start** to drive. A fresh snapshot verifies the pods are still aligned and seeds quadrature with the measured residual angle. Moving a pod away from forward while waiting requires reinitialization. Runtime then uses quadrature only. At zero requested pod velocity the previous azimuth target is retained. A completely zero chassis request sends true zero to every motor with BRAKE; it does not actively steer.
 
 Analog readings accept 0..3.3 V; the 3.2..3.3 V upper margin is clamped to the wrap endpoint while angle conversion retains the documented 3.2 V scale. Alignment telemetry shows both raw voltages, and analog faults report the measured voltage. The previous exact-3.2 V cutoff could reject a slightly overscale reading; the earlier generic fault did not establish the actual voltage.
 

@@ -70,6 +70,7 @@ public final class DifferentialSwervePodController {
     }
 
     public double getAngleError() { return angleError; }
+    public boolean isReversed() { return reversed; }
 
     /** Match software slew state to an externally commanded motor stop. Retain target choice. */
     public void stopOutput() {

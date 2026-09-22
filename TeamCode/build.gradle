@@ -26,5 +26,20 @@ android {
 
 dependencies {
     implementation project(':FtcRobotController')
+    def localPedro = providers.gradleProperty('pedroLocalArtifacts').orNull
+    if (localPedro) {
+        def pedroRoot = rootProject.file(localPedro)
+        def pedroProperties = new Properties()
+        new File(pedroRoot, 'gradle.properties').withInputStream { pedroProperties.load(it) }
+        def localCore = new File(pedroRoot, "core/build/libs/core-${pedroProperties.getProperty('version')}.jar")
+        def localRevhub = new File(pedroRoot, 'revhub/build/outputs/aar/revhub-release.aar')
+        if (!localCore.isFile() || !localRevhub.isFile()) {
+            throw new GradleException('Build Pedro :core:jar :revhub:assembleRelease before using -PpedroLocalArtifacts')
+        }
+        implementation files(localCore, localRevhub)
+        logger.lifecycle("Pedro verification uses local artifacts from ${pedroRoot}")
+    } else {
+        implementation 'com.pedropathing:revhub:3.0.1'
+    }
     testImplementation 'junit:junit:4.13.2'
 }

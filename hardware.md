@@ -107,10 +107,10 @@ The complete programmed external ratio is `(16/54) * (50/19) = 0.779727` wheel r
 
 - Left-stick direction selects robot-relative travel direction; distance from center selects speed after radial deadband rescaling.
 - Right-stick X commands rotation about the pod midpoint: right is clockwise, left is counterclockwise. Rotation input is cubed after its deadband.
-- Full-stick pure rotation uses the full wheel-speed range of both pods. When aligned forward, motor0/motor1 request +2781 ticks/s and motor2/motor3 request -2781 ticks/s for a right turn; a left turn reverses all signs. Misalignment reduces drive to preserve steering authority.
+- Full-stick pure rotation uses the full wheel-speed range of both pods. When aligned forward, all four hardware motors request approximately +2781 ticks/s for a right turn; a left turn reverses all four signs. Logical wheel speeds are opposite: left forward/right reverse for clockwise motion, followed by the right pod negate-and-swap hardware mapping. Misalignment reduces drive to preserve steering authority.
 - Releasing right-stick X commands zero chassis rotation, with no heading hold or return-to-forward behavior.
 - Triggers are unused.
-- At zero requested pod velocity, its previous azimuth target is retained. Steering can remain active to maintain that pod target.
+- At zero requested pod velocity, its previous azimuth target is retained. A wholly zero chassis command sets all four motor velocities to zero with BRAKE; a zero-speed pod within a nonzero chassis request may still steer toward its retained target.
 
 Per pod, the controller optimizes the requested vector by reversing wheel direction when appropriate. A 3° hysteresis band around the 90° reversal boundary prevents chatter, allowing up to 93° retained steering error. It applies PD steering with measured-rate damping, a steering-command slew limit, and cosine-squared alignment scaling; wheel drive is zero at or beyond 90° error.
 
@@ -131,15 +131,15 @@ These are current source defaults, **not validated gains or safe operating limit
 | --- | --- | --- |
 | Pod `DEFAULT_KP` | 0.5 | Normalized steering output per radian of error |
 | Pod `DEFAULT_KD` | 0.01 | Measured-rate damping, normalized output per rad/s |
-| `MAX_DRIVE_POWER` | 1.0 | Wheel-drive command scale |
+| `PedroDriveConfig.TELEOP_MAX_DRIVE` | 1.0 | Wheel-drive command scale |
 | Pod `DEFAULT_MAX_STEER` | 0.20 | Steering component limit, matching startup cap |
 | `DRIVE_DEADBAND`, `TURN_DEADBAND` | 0.05 | Stick deadbands |
 | Input `MAX_TURN_RATE` | `2 * MAX_WHEEL_SPEED_METERS_PER_SECOND / TRACK_WIDTH_METERS`, about 16.52 rad/s | Theoretical full-stick pure rotation scale: opposite wheels at full speed, not a measured loaded chassis rate |
 | Pod `DEFAULT_SLEW_RATE` | 2.0/s | Normalized steering-command change limit; nonpositive disables it |
-| `VEL_PID_KP`, `VEL_PID_KI`, `VEL_PID_KD` | 15.0, 0.5, 0.5 | REV motor velocity controller gains |
-| `VEL_PID_KF` | `32767 / 2781.0833`, about 11.782 | Preliminary REV velocity feedforward, not volts/RPM |
+| `SwerveTuning.MOTOR_VELOCITY_P/I/D` | 15.0, 0.5, 0.5 | REV motor velocity controller gains |
+| `SwerveTuning.MOTOR_VELOCITY_F` | `32767 / 2781.0833`, about 11.782 | Preliminary REV velocity feedforward, not volts/RPM |
 
-Tuning uses source constants: pod steering in `DifferentialSwervePodController`, deadbands/turn rate in `SwerveDriverInput`, and drive limit/motor PIDF in `DifferentialSwerveTeleOp`. Rebuild after editing. Motor PIDF is applied once in INIT and can be tuned live through the installed FTC Dashboard dependencies; the planned hardware PID tuning workflow uses FTC Dashboard.
+`SwerveTuning` owns live motor PIDF, steering PD/slew/cap, and alignment tuning. `SwerveDriverInput` owns input shaping; `PedroDriveConfig` owns drive profiles. The runtime reapplies changed PIDF values, and the pods validate output limits on every preparation. Record tuned values back into source before redeploying; Dashboard changes are session-only.
 
 ## Commissioning and Faults
 
@@ -155,4 +155,34 @@ The drive reads one validated bulk snapshot per configured hub per normal loop a
 
 Software checks cannot interrupt a blocked SDK call or guarantee delivery of a failed stop command. A disconnected or frozen quadrature encoder can still return valid hub data and is not reliably detected. A disconnected analog input can read a valid 0 V and seed an incorrect angle; there is no reliable disconnect protection, and analog is not used for runtime correction. Because every configured hub is checked, an unrelated hub fault can also stop the drive or suppress a diagnostic reading.
 
-The debug APK build and unit tests passed with `./gradlew.bat :TeamCode:testDebugUnitTest :TeamCode:assembleDebug`. Tests cover encoder math, steering/damping polarity, chassis kinematics, limits, and simulated closed-loop convergence. They do not exercise real hub wiring or powered OpMode behavior. Complete [HUMAN_TASKS.md](HUMAN_TASKS.md) for powered commissioning, tuning, and final acceptance. PIDF/PD tuning, loaded speed, stopping behavior, and actual Control Hub loop timing remain to be verified on the robot. No Pinpoint commissioning is needed for this setup.
+The debug APK build and unit tests passed with `./gradlew.bat :TeamCode:testDebugUnitTest :TeamCode:assembleDebug`. Tests cover encoder math, steering/damping polarity, chassis kinematics, limits, and simulated closed-loop convergence. They do not exercise real hub wiring or powered OpMode behavior. Complete [HUMAN_TASKS.md](HUMAN_TASKS.md) for powered commissioning, tuning, and final acceptance. PIDF/PD tuning, loaded speed, stopping behavior, actual Control Hub loop timing, and Pinpoint frame verification remain to be completed on the robot.
+
+## Pedro / Pinpoint integration settings
+
+The application consumes `com.pedropathing:revhub:3.0.1`. The robot frame is X forward, Y left,
+and CCW-positive yaw. Drive-pod centers are `(0, +7.0767716535 in)` left and
+`(0, -7.0767716535 in)` right. The Pinpoint odometry offsets are independent: X pod
+`+199.25 mm` (left of center) and Y pod `+88.0 mm` (forward of center), using two
+`goBILDA_4_BAR_POD` presets and global inches.
+
+Current commissioned direction settings are X `FORWARD`, Y `FORWARD`, with a
+`COUNTERCLOCKWISE_POSITIVE` heading convention. `PinpointSettings` accepts these values for powered
+Pedro arming. Continue monitoring the following during commissioning:
+
+| Observation | Expected | Recorded result |
+| --- | --- | --- |
+| Forward translation | field X increases | PASS |
+| Left translation | field Y increases | PASS |
+| CCW rotation | heading and angular rate increase | PASS |
+| Forward at +90 degrees | field Y increases | PASS |
+| 24 in forward scale | within 2% | PASS |
+| 24 in left scale | within 2% | PASS |
+| Rotation-in-place translation drift | at most 1 in initially | PASS |
+
+Autonomous commissioning uses a `0.15` wheel-drive component and `0.20` normalized turn envelope.
+The existing `0.20` steering component is retained, for a configured combined commissioning cap of
+`0.35`. Motor targets remain: left pod `(logicalLeft, logicalRight)` and right pod
+`(-logicalRight, -logicalLeft)`, multiplied once by `2781.083333 ticks/s`. Zero commands and all
+faults retain `RUN_USING_ENCODER` plus BRAKE; voltage compensation and X-lock are disabled.
+
+The 0.35 autonomous combined cap is enforced at each motor preparation, including after Dashboard edits; increasing steering above the available commissioning headroom stops the run. Normal TeleOp uses a separate 1.0 motor envelope. Hardware loop timing, actual stop delivery, and loaded dynamics remain subject to physical testing. See [INTEGRATION_STATUS.md](INTEGRATION_STATUS.md) for the September 21 software verification results.

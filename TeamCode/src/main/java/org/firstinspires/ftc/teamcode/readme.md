@@ -1,10 +1,8 @@
 ## TeamCode Module
 
-Welcome!
+This module contains the Phoenix differential-swerve drivetrain, shared safety runtime, encoder diagnostics, guarded Pedro 3.0.1 integration, and commissioning OpModes. It is not an empty starter module.
 
-This module, TeamCode, is the place where you will write/paste the code for your team's
-robot controller App. This module is currently empty (a clean slate) but the
-process for adding OpModes is straightforward.
+Use `PedroAutoDrive` for autonomous ownership and the disabled `PedroAutoTemplate` for a complete example. Keep each diagnostic scoped to the hardware it tests. Do not initialize unrelated subsystems or use Pedro's generic `Swerve` for this differential robot. Consult the repository-root `README.md`, `PROJECT_DESIGN.md`, `INTEGRATION_STATUS.md`, and `HUMAN_TASKS.md` before enabling path OpModes.
 
 ## Creating your own OpModes
 
